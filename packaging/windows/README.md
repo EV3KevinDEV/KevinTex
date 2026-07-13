@@ -10,6 +10,11 @@ can select the best-effort CUDA 12.4 flavor, which is marked at build time and
 requires a compatible NVIDIA driver. Source launches can opt into an installed
 CUDA llama.cpp runtime with `KEVINTEX_CUDA=1`.
 
+The CUDA runtime is larger than GitHub's single-file release limit, so that
+flavor is published as numbered `.7z.001`, `.7z.002`, … volumes. Download every
+part into one folder and open `.7z.001` with 7-Zip. The standard CPU build
+remains a single ZIP.
+
 On first launch, the Gemma GGUF files (about 4.1 GB) download to:
 
 ```text

@@ -100,22 +100,34 @@ jobs:
             throw "Packaged frontend data is missing."
           }
 
-      - name: Create versioned ZIP
+      - name: Create versioned archive
         run: |
           $suffix = if ($env:ACCELERATION -eq "cuda") { "-cuda" } else { "" }
-          $archive = "KevinTex-$env:VERSION-windows-x64$suffix.zip"
-          Compress-Archive -Path "dist/KevinTex/*" -DestinationPath $archive
-          "ARCHIVE=$archive" >> $env:GITHUB_ENV
+          if ($env:ACCELERATION -eq "cuda") {
+            # GitHub release assets are capped below 2 GiB. The CUDA runtime is
+            # large, so publish standard 7-Zip multi-volume files that extract
+            # together when all parts are downloaded into one directory.
+            $archive = "KevinTex-$env:VERSION-windows-x64$suffix.7z"
+            & 7z a -t7z -mx=7 -v1900m $archive "dist/KevinTex/*"
+            if ($LASTEXITCODE -ne 0) { throw "7-Zip packaging failed." }
+            "ARCHIVE_GLOB=$archive.*" >> $env:GITHUB_ENV
+          } else {
+            $archive = "KevinTex-$env:VERSION-windows-x64.zip"
+            Compress-Archive -Path "dist/KevinTex/*" -DestinationPath $archive
+            "ARCHIVE_GLOB=$archive" >> $env:GITHUB_ENV
+          }
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: KevinTex-${{ env.VERSION }}-windows-x64-${{ env.ACCELERATION }}
-          path: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE_GLOB }}
           if-no-files-found: error
 
       - name: Upload to existing GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload $env:RELEASE_TAG $env:ARCHIVE --clobber --repo $env:GITHUB_REPOSITORY
+          $files = Get-ChildItem -Path $env:ARCHIVE_GLOB | ForEach-Object { $_.FullName }
+          if (-not $files) { throw "No release archives matched $env:ARCHIVE_GLOB." }
+          gh release upload $env:RELEASE_TAG $files --clobber --repo $env:GITHUB_REPOSITORY
