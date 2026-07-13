@@ -12,15 +12,16 @@ PKG="$STAGE/kevintex_${VERSION}_all"
 # --- payload ---
 install -d "$PKG/opt/kevintex" "$PKG/usr/bin" \
            "$PKG/usr/share/applications" \
-           "$PKG/usr/share/icons/hicolor/scalable/apps" \
+           "$PKG/usr/share/icons/hicolor/512x512/apps" \
            "$PKG/usr/share/doc/kevintex"
 
 cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$PKG/opt/kevintex/"
 cp -r "$PROJ/static" "$PKG/opt/kevintex/static"
 cp "$PROJ/README.md" "$PKG/usr/share/doc/kevintex/"
+cp -r "$PROJ/assets" "$PKG/usr/share/doc/kevintex/assets"
 install -m 755 "$PROJ/packaging/localtex-launcher" "$PKG/usr/bin/kevintex"
 install -m 644 "$PROJ/packaging/localtex.desktop" "$PKG/usr/share/applications/kevintex.desktop"
-install -m 644 "$PROJ/packaging/localtex.svg" "$PKG/usr/share/icons/hicolor/scalable/apps/kevintex.svg"
+install -m 644 "$PROJ/packaging/kevintex.png" "$PKG/usr/share/icons/hicolor/512x512/apps/kevintex.png"
 
 # --- control files ---
 install -d "$PKG/DEBIAN"

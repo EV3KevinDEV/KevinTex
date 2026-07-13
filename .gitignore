@@ -5,3 +5,6 @@ __pycache__/
 *.py[cod]
 *.log
 .DS_Store
+packaging/windows/kevintex.ico
+packaging/windows/version_info.txt
+packaging/macos/kevintex.icns

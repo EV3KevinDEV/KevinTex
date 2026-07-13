@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/kevintex-banner.png" alt="KevinTex — Screenshot to LaTeX" width="900">
+</p>
+
 # KevinTex — Snip & Get, fully offline
 
 A local, free, unlimited formula-image → LaTeX converter (a self-hosted

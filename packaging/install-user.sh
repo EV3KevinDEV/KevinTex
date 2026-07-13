@@ -6,21 +6,23 @@ PROJ="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$HOME/.local/opt/kevintex"
 BIN="$HOME/.local/bin"
 APPS="$HOME/.local/share/applications"
-ICONS="$HOME/.local/share/icons/hicolor/scalable/apps"
+ICONS="$HOME/.local/share/icons/hicolor/512x512/apps"
 
 mkdir -p "$APP" "$BIN" "$APPS" "$ICONS"
 
 cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$APP/"
 rm -rf "$APP/static" && cp -r "$PROJ/static" "$APP/static"
 install -m 755 "$PROJ/packaging/localtex-launcher" "$BIN/kevintex"
-cp "$PROJ/packaging/localtex.svg" "$ICONS/kevintex.svg"
+cp "$PROJ/packaging/kevintex.png" "$ICONS/kevintex.png"
 
 sed "s|^Exec=kevintex$|Exec=env KEVINTEX_APP_DIR=$APP $BIN/kevintex|" \
     "$PROJ/packaging/localtex.desktop" > "$APPS/kevintex.desktop"
 
 # Remove obsolete launchers from releases branded LocalTeX. Keep their app data
 # directory so existing model downloads and settings remain available.
-rm -f "$BIN/localtex" "$APPS/localtex.desktop" "$ICONS/localtex.svg"
+rm -f "$BIN/localtex" "$APPS/localtex.desktop" \
+    "$HOME/.local/share/icons/hicolor/scalable/apps/localtex.svg" \
+    "$HOME/.local/share/icons/hicolor/scalable/apps/kevintex.svg"
 
 # Reuse the dev venv if present so first run doesn't re-download PyTorch.
 DATA="$HOME/.local/share/localtex"

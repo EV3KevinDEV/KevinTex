@@ -78,6 +78,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="KevinTex.app",
+    icon=str(project / "packaging" / "macos" / "kevintex.icns"),
     bundle_identifier="app.kevintex.desktop",
     info_plist={
         "CFBundleDisplayName": "KevinTex",

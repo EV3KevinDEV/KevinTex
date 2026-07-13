@@ -10,6 +10,19 @@ cd "$ROOT"
 rm -rf build/KevinTex dist/KevinTex dist/KevinTex.app "$STAGE_DIR"
 mkdir -p "$ARTIFACT_DIR" "$STAGE_DIR"
 
+# Build a native multi-resolution macOS icon from the supplied KevinTex art.
+ICONSET="$ROOT/build/KevinTex.iconset"
+rm -rf "$ICONSET"
+mkdir -p "$ICONSET"
+for SIZE in 16 32 128 256 512; do
+  DOUBLE=$((SIZE * 2))
+  sips -z "$SIZE" "$SIZE" assets/kevintex-icon.png \
+    --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
+  sips -z "$DOUBLE" "$DOUBLE" assets/kevintex-icon.png \
+    --out "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o packaging/macos/kevintex.icns
+
 KEVINTEX_VERSION="$VERSION" pyinstaller \
   --noconfirm --clean --distpath dist --workpath build/KevinTex \
   packaging/macos/KevinTex.spec
