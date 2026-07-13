@@ -93,6 +93,26 @@ class ModelInitializationTests(unittest.TestCase):
 
 
 class InferenceConcurrencyTests(unittest.TestCase):
+    def test_gemma_audio_uses_mtmd_media_transport(self):
+        class FakeLlama:
+            def create_chat_completion(self, **kwargs):
+                import copy
+                self.kwargs = copy.deepcopy(kwargs)
+                return {"choices": [{"message": {"content": "LATEX: $x^2$"}}]}
+
+        backend = backend_gemma.GemmaVisionBackend.__new__(backend_gemma.GemmaVisionBackend)
+        backend.default_thinking = False
+        backend._inference_lock = threading.Lock()
+        backend.llm = FakeLlama()
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
+            audio.write(b"RIFF" + b"\0" * 40)
+            audio.flush()
+            self.assertEqual(backend.recognize_audio(audio.name), "$x^2$")
+        media = backend.llm.kwargs["messages"][0]["content"][0]
+        self.assertEqual(media["type"], "image_url")
+        self.assertTrue(media["image_url"]["url"].startswith("data:audio/wav;base64,"))
+
     def test_mlx_audio_uses_documented_multimodal_arguments(self):
         class Result:
             text = "LATEX: $x^2 + y^2$"
@@ -231,7 +251,7 @@ class UploadLimitTests(unittest.TestCase):
 
     def test_voice_is_rejected_on_backend_without_audio(self):
         previous_backend = app.BACKEND
-        app.BACKEND = "gemma"
+        app.BACKEND = "pix2tex"
         upload = UploadFile(io.BytesIO(b"not audio"), filename="voice.wav")
         try:
             response = asyncio.run(app.voice(upload, thinking=False))

@@ -4,7 +4,7 @@
 
 fastapi
 huggingface-hub
-llama-cpp-python
+llama-cpp-python>=0.3.34
 pillow
 pyinstaller
 pywebview

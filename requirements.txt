@@ -10,7 +10,7 @@ torchvision
 # (try cu122 / cu124 indexes if cu121 has no matching wheel).
 # The CUDA wheel needs torch's pip-bundled NVIDIA runtime libs, which
 # backend_gemma.py preloads via ctypes at import time -- no system CUDA needed.
-llama-cpp-python
+llama-cpp-python>=0.3.34
 huggingface_hub
 
 # Optional fallback backend: Liquid AI LFM2.5-VL-1.6B (set LOCALTEX_BACKEND=lfm-vl).
