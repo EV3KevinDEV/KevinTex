@@ -2,14 +2,16 @@
   <img src="assets/kevintex-banner.png" alt="KevinTex — Screenshot to LaTeX" width="900">
 </p>
 
-# KevinTex — Snip & Get, fully offline
+# KevinTex — Snip & Get
 
 A local, free, unlimited formula-image → LaTeX converter (a self-hosted
 alternative to SimpleTex). Paste, drop, or **snip** a screenshot of a math
 formula and get editable Markdown + LaTeX with a live rendered preview.
-Recognition runs entirely on your machine using the quantized
+Recognition defaults to the quantized
 [Gemma 4 E2B-it](https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF)
-vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
+vision-language model through llama.cpp. On first launch, you can either
+download those local weights or use hosted Gemma 4 through a Google AI Studio
+API key.
 
 ## Features
 
@@ -41,18 +43,23 @@ vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
 - **Switchable backend** — Gemma is the default; `LOCALTEX_BACKEND=lfm-vl` or
   `LOCALTEX_BACKEND=pix2tex` selects an alternative local backend. The macOS
   application selects `LOCALTEX_BACKEND=mlx` automatically.
+- **Local or cloud Gemma** — choose **Download model weights** or **Use Google
+  AI Studio API** on first launch. Change the choice later in Settings. The
+  hosted option uses `gemma-4-26b-a4b-it`; images are sent to Google and usage
+  follows your AI Studio quota/billing.
 
 ## Install
 
 Prebuilt packages are attached to each [GitHub release](https://github.com/EV3KevinDEV/KevinTex/releases):
 
-- **Ubuntu:** `kevintex_1.2.4_all.deb`
-- **Windows:** portable `KevinTex-1.2.4-windows-x64.zip` containing `KevinTex.exe`
-- **Apple Silicon macOS:** `KevinTex-1.2.4-macOS-arm64.dmg` or `.zip`
+- **Ubuntu:** `kevintex_1.2.5_all.deb`
+- **Windows:** portable `KevinTex-1.2.5-windows-x64.zip` containing `KevinTex.exe`
+- **Apple Silicon macOS:** `KevinTex-1.2.5-macOS-arm64.dmg` or `.zip`
 
-The Windows and macOS applications open in a native window. Model weights are
-not bundled; they download to the current user's application-data directory on
-first launch. The macOS build requires an M-series Mac and uses MLX/Metal.
+The Windows and macOS applications open in a native window. Local model weights
+are not bundled; if you choose the local provider, they download to the current
+user's application-data directory. The macOS build requires an M-series Mac
+and uses MLX/Metal for its local provider.
 
 ### Ubuntu desktop app
 
@@ -62,7 +69,7 @@ Two options:
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/kevintex_1.2.4_all.deb
+sudo apt install ./dist/kevintex_1.2.5_all.deb
 ```
 
 **Current user only (no root):**
@@ -74,9 +81,10 @@ packaging/install-user.sh
 Either way you get a **KevinTex** entry in the applications menu with its own
 icon. Launching it starts the local server and opens the app in its own
 native window (Chrome/Chromium app mode; falls back to your browser).
-Closing the window stops the server. On a machine without the model
-environment, the first launch shows a one-time setup dialog that downloads
-PyTorch, llama.cpp, and the Gemma GGUF weights.
+Closing the window stops the server. On first launch, the app shows a provider
+setup screen. The local choice downloads PyTorch/llama.cpp model weights; the
+AI Studio choice asks for a key from
+<https://aistudio.google.com/app/apikey> and does not download model weights.
 
 The app window's **Snip** button (computer-with-+ icon) opens a fullscreen
 region selector: drag a box around a formula and it's converted immediately —
@@ -89,9 +97,8 @@ tool required.
 ./run.sh
 ```
 
-Then open http://127.0.0.1:8321 (the script opens it for you). The first
-launch downloads the Gemma weights (one time); after that it
-is fully offline.
+Then open http://127.0.0.1:8321 (the script opens it for you). The first launch
+asks whether to download the local Gemma weights or configure Google AI Studio.
 
 ## Manual setup (if moving to another machine)
 
@@ -125,8 +132,8 @@ query parameters. Conversion responses include the applied preprocessing
 metadata.
 
 `POST /api/voice` accepts a 16 kHz mono WAV file in the `audio` multipart field
-and an optional `thinking` boolean. It is available with the default `gemma`
-backend and with `LOCALTEX_BACKEND=mlx`.
+and an optional `thinking` boolean. It is available with local Gemma backends
+and is hidden while the hosted AI Studio provider is active.
 
 ## Performance and resource controls
 
@@ -141,3 +148,9 @@ The following optional environment variables tune local inference:
 - `LOCALTEX_N_THREADS` — CPU inference threads
 - `LOCALTEX_MAX_UPLOAD_BYTES` — upload cap (default 20 MiB)
 - `LOCALTEX_INFERENCE_QUEUE_TIMEOUT` — wait before returning busy
+- `LOCALTEX_PROVIDER=local|cloud` — optionally select the Gemma provider before startup
+- `GEMINI_API_KEY` — optionally provide the Google AI Studio key through the environment
+
+The Settings UI stores a key in the per-user `provider.json` file with
+user-only permissions where supported. The key is not stored in browser
+`localStorage` or returned by the provider status API.

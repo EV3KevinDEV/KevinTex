@@ -11,10 +11,9 @@ maim, etc.) and no xdg-desktop-portal backend. Esc cancels.
 Usage: snip.py <output_path>
 """
 
-import os
 import sys
 
-from PIL import Image, ImageGrab, ImageTk
+from PIL import ImageGrab, ImageTk
 import tkinter as tk
 
 

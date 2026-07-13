@@ -80,14 +80,19 @@ N_GPU_LAYERS = _env_int("LOCALTEX_N_GPU_LAYERS", -1)
 N_BATCH = _env_int("LOCALTEX_N_BATCH", 512, 1)
 N_THREADS = _env_int("LOCALTEX_N_THREADS", 0, 0) or None
 
+
+def model_files_present() -> bool:
+    """Return whether both local Gemma files are already cached."""
+    return os.path.isfile(os.path.join(MODEL_DIR, MAIN_GGUF)) and os.path.isfile(
+        os.path.join(MODEL_DIR, MMPROJ_GGUF)
+    )
+
 # Reuse the exact prompt text + cleanup from the LFM backend so output style is
 # identical across backends.
 from backend_vlm import (  # noqa: E402
     AUDIO_PROMPT,
     PROMPT,
     THINKING_PROMPT,
-    LATEX_SENTINEL,
-    _to_markdown_math,
     _extract_markdown,
 )
 
@@ -103,7 +108,6 @@ def _preload_cuda_libs() -> None:
     """
     import ctypes
     import glob
-    import sys
 
     try:
         import torch  # noqa: F401  -- ensure torch's nvidia pip pkgs exist
@@ -245,6 +249,13 @@ class GemmaVisionBackend:
     def __call__(self, img, thinking: bool | None = None) -> str:
         return self.recognize(img, thinking=thinking)
 
+    def close(self) -> None:
+        """Release the llama.cpp context and its CPU/GPU memory."""
+        with self._inference_lock:
+            close = getattr(self.llm, "close", None)
+            if callable(close):
+                close()
+
     def recognize(self, img, thinking: bool | None = None) -> str:
         """Recognize the formula in `img` and return cleaned Markdown+math."""
         think = self.default_thinking if thinking is None else bool(thinking)
@@ -287,8 +298,6 @@ class GemmaVisionBackend:
         log.info("Gemma generated %d tokens in %.2fs (%.1f tok/s, thinking=%s)",
                  gen_tokens, elapsed, toks_per_s, think)
 
-        if think:
-            return _extract_markdown(content)
         return _extract_markdown(content)
 
     def recognize_audio(self, audio_path: str, thinking: bool | None = None) -> str:

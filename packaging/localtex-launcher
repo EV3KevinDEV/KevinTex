@@ -5,7 +5,7 @@ set -u
 
 APP_DIR="${KEVINTEX_APP_DIR:-${LOCALTEX_APP_DIR:-}}"
 if [ -z "$APP_DIR" ]; then
-    for d in /opt/kevintex "$HOME/.local/opt/kevintex" /opt/localtex "$HOME/.local/opt/localtex"; do
+    for d in "$HOME/.local/opt/kevintex" /opt/kevintex "$HOME/.local/opt/localtex" /opt/localtex; do
         [ -f "$d/app.py" ] && APP_DIR="$d" && break
     done
 fi
@@ -18,16 +18,55 @@ VENV="$DATA_DIR/venv"
 PORT=8321
 URL="http://127.0.0.1:$PORT"
 LOG="$DATA_DIR/server.log"
+MODELS_DIR="$DATA_DIR/models"
+CACHE_DIR="$DATA_DIR/cache"
 
 mkdir -p "$DATA_DIR"
+if [ ! -e "$MODELS_DIR" ] && [ -d "$APP_DIR/models" ] && [ -w "$APP_DIR" ]; then
+    mv "$APP_DIR/models" "$MODELS_DIR"
+fi
+mkdir -p "$MODELS_DIR" "$CACHE_DIR/huggingface"
+export LOCALTEX_DATA_DIR="$DATA_DIR"
+export LOCALTEX_MODELS_DIR="$MODELS_DIR"
+export HF_HOME="$CACHE_DIR/huggingface"
 
 notify() {
-    command -v notify-send >/dev/null && notify-send -i kevintex "KevinTex" "$1" || true
+    if command -v notify-send >/dev/null; then
+        notify-send -i kevintex "KevinTex" "$1" || true
+    fi
 }
 
 server_up() {
     curl -sf --max-time 2 "$URL/api/health" >/dev/null 2>&1
 }
+
+server_pid_is_ours() {
+    local pid="$1"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q "uvicorn app:app" || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q -- "--port $PORT"
+}
+
+SERVER_PID=""
+
+stop_server() {
+    if [ -z "$SERVER_PID" ] || ! server_pid_is_ours "$SERVER_PID"; then
+        return
+    fi
+    notify "Stopping KevinTex…"
+    kill "$SERVER_PID" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+        kill -0 "$SERVER_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    if kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill -KILL "$SERVER_PID" 2>/dev/null || true
+    fi
+    rm -f "$DATA_DIR/server.pid"
+}
+
+trap stop_server EXIT INT TERM
 
 # ---------- first-run bootstrap ----------
 if [ ! -x "$VENV/bin/uvicorn" ]; then
@@ -58,17 +97,28 @@ echo; echo 'Setup complete. You can close this window.'"
 fi
 
 # ---------- start server ----------
-STARTED_BY_US=0
 if ! server_up; then
-    (cd "$APP_DIR" && nohup "$VENV/bin/uvicorn" app:app --host 127.0.0.1 --port $PORT \
-        >> "$LOG" 2>&1 & echo $! > "$DATA_DIR/server.pid")
-    STARTED_BY_US=1
+    rm -f "$DATA_DIR/server.pid"
+    (
+        cd "$APP_DIR" || exit 1
+        nohup "$VENV/bin/uvicorn" app:app --host 127.0.0.1 --port $PORT \
+            >> "$LOG" 2>&1 &
+        echo $! > "$DATA_DIR/server.pid"
+    )
+    SERVER_PID="$(cat "$DATA_DIR/server.pid" 2>/dev/null || true)"
     # The server answers /api/health within a couple of seconds (model loads in
     # the background); the in-app splash then shows download/load progress.
     for _ in $(seq 1 90); do server_up && break; sleep 1; done
     if ! server_up; then
         notify "Server failed to start. See $LOG"
         exit 1
+    fi
+else
+    # Reuse only a server recorded by this launcher. If another process owns
+    # the port, leave it alone rather than killing an unrelated service.
+    candidate="$(cat "$DATA_DIR/server.pid" 2>/dev/null || true)"
+    if server_pid_is_ours "$candidate"; then
+        SERVER_PID="$candidate"
     fi
 fi
 
@@ -83,12 +133,10 @@ if [ -n "$BROWSER" ]; then
     # down when the window closes.
     "$BROWSER" --app="$URL" --class=KevinTex \
         --user-data-dir="$DATA_DIR/window-profile" \
-        --no-first-run --no-default-browser-check >/dev/null 2>&1
-    if [ "$STARTED_BY_US" = 1 ] && [ -f "$DATA_DIR/server.pid" ]; then
-        kill "$(cat "$DATA_DIR/server.pid")" 2>/dev/null
-        rm -f "$DATA_DIR/server.pid"
-    fi
+        --no-first-run --no-default-browser-check --disable-background-mode >/dev/null 2>&1
 else
     xdg-open "$URL" >/dev/null 2>&1 || true
-    # No app-mode browser: leave the server running for the browser tab.
+    # Without app mode there is no reliable close event, so keep the server
+    # alive rather than stopping it while the browser tab is still open.
+    SERVER_PID=""
 fi

@@ -2,7 +2,7 @@
 
 import unittest
 
-from backend_vlm import _extract_markdown, _strip_meta_junk, _to_markdown_math
+from backend_vlm import _extract_markdown, _to_markdown_math
 
 
 class BackendCleanupTests(unittest.TestCase):

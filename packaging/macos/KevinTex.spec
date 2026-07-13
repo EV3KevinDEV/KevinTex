@@ -24,17 +24,22 @@ a = Analysis(
     + vlm_datas,
     hiddenimports=[
         "app",
+        "backend_gemma_cloud",
         "backend_mlx",
         "backend_vlm",
         "image_preprocessing",
+        "provider_config",
         "snip",
+        "google.genai",
+        "google.genai.types",
         "tkinter",
         "PIL.ImageTk",
         "webview.platforms.cocoa",
     ]
     + mlx_hidden
     + vlm_hidden
-    + collect_submodules("mlx_vlm.models.gemma4"),
+    + collect_submodules("mlx_vlm.models.gemma4")
+    + collect_submodules("google.genai"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

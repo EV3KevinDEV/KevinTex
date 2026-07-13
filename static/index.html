@@ -15,7 +15,7 @@
 </script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KevinTex — Snip &amp; Get, offline</title>
+<title>KevinTex — Snip &amp; Get</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
 <script defer src="/static/vendor/katex/katex.min.js"></script>
@@ -342,6 +342,19 @@
   .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .confirm-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
   .confirm-danger:hover { background: var(--danger-hover-fg); }
+  .provider-group[hidden] { display: none; }
+  .provider-status { margin: -2px 0 12px; font-size: 12px; color: var(--muted); }
+  .provider-controls { display: grid; gap: 8px; }
+  .provider-controls button { width: 100%; text-align: left; }
+  .provider-key { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+  .provider-key input {
+    width: 100%; min-width: 0; box-sizing: border-box; min-height: 40px;
+    padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--text); font: inherit;
+  }
+  .provider-key input::placeholder { color: var(--muted); }
+  .provider-help { margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .provider-help a { color: var(--accent); }
   .set-group { margin-bottom: 18px; }
   .set-group > label.title { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
   .radio-row { display: flex; flex-wrap: wrap; gap: 6px 16px; }
@@ -424,6 +437,17 @@
     transition: width .4s ease;
   }
   .splash-sub { font-size: 12px; color: #8a94a8; min-height: 1em; }
+  .splash-setup { margin-top: 18px; text-align: left; }
+  .splash-setup[hidden] { display: none; }
+  .splash-setup > p { margin: 0 0 12px; color: #b9c3d6; font-size: 13px; line-height: 1.45; }
+  .setup-option { padding: 12px; border: 1px solid rgba(255,255,255,.15); border-radius: 10px; background: rgba(255,255,255,.05); }
+  .setup-option + .setup-option { margin-top: 9px; }
+  .setup-option button { width: 100%; padding: 9px 12px; border: 0; border-radius: 7px; cursor: pointer; background: #4b8bff; color: #fff; font-weight: 600; font-size: 13px; }
+  .setup-option button:hover { background: #6ea8ff; }
+  .setup-option small { display: block; margin-top: 7px; color: #9ca8bd; font-size: 11px; line-height: 1.4; }
+  .setup-option input { width: 100%; box-sizing: border-box; margin-bottom: 7px; padding: 9px 10px; border: 1px solid rgba(255,255,255,.22); border-radius: 7px; background: rgba(0,0,0,.22); color: #fff; font: inherit; }
+  .setup-option input::placeholder { color: #8a94a8; }
+  .setup-link { display: inline-block; margin-top: 10px; color: #8eb8ff; font-size: 11px; }
   .splash-retry {
     margin-top: 16px; padding: 8px 18px; border-radius: 99px; cursor: pointer;
     background: #4b8bff; color: #fff; border: none; font-weight: 600; font-size: 13px;
@@ -435,11 +459,24 @@
 
 <div id="splash" role="status" aria-live="polite">
   <div class="splash-box">
-    <div class="splash-spinner" aria-hidden="true"></div>
+    <div class="splash-spinner" id="splash-spinner" aria-hidden="true"></div>
     <div class="splash-title">Kevin<span>Tex</span></div>
     <div class="splash-message" id="splash-message">Starting up…</div>
     <div class="splash-progress"><div class="splash-bar" id="splash-bar"></div></div>
     <div class="splash-sub" id="splash-sub"></div>
+    <div class="splash-setup" id="splash-setup" hidden>
+      <p>Choose how KevinTex should run Gemma 4. Local weights stay on this computer; AI Studio sends images to Google and may use your account quota.</p>
+      <div class="setup-option">
+        <button id="setup-local" type="button">Download model weights</button>
+        <small>Runs locally after a one-time download of about 4.1 GB. No API key required.</small>
+      </div>
+      <div class="setup-option">
+        <input id="setup-api-key" type="password" placeholder="Paste Google AI Studio API key" autocomplete="new-password" spellcheck="false">
+        <button id="setup-cloud" type="button">Use Google AI Studio API</button>
+        <small>Your key is stored only in KevinTex's local user config and is not saved in browser storage.</small>
+      </div>
+      <a class="setup-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get an API key from Google AI Studio ↗</a>
+    </div>
     <button class="splash-retry" id="splash-retry" type="button" hidden>Retry</button>
   </div>
 </div>
@@ -541,7 +578,7 @@
     <div id="dz-idle">
       <div class="cloud">&#9729;&#65038;</div>
       Drag, paste (Ctrl+V) a formula image, or <b>click here</b> to browse
-      <small>PNG / JPG / BMP / WEBP — runs 100% on this machine, free &amp; unlimited</small>
+      <small id="drop-help">PNG / JPG / BMP / WEBP — local mode runs 100% on this machine</small>
     </div>
     <div id="dz-busy" style="display:none">
       <div class="spinner"></div>
@@ -570,6 +607,18 @@
     <button class="icon-btn" id="dlg-close">✕</button>
   </div>
   <div class="dlg-body">
+    <div class="set-group provider-group" id="provider-settings" hidden>
+      <label class="title">Gemma 4 provider</label>
+      <div class="provider-status" id="provider-status">Checking provider…</div>
+      <div class="provider-controls">
+        <button class="icon-btn" id="settings-local" type="button">Use local model weights</button>
+        <div class="provider-key">
+          <input id="settings-api-key" type="password" placeholder="Paste a new AI Studio API key" autocomplete="new-password" spellcheck="false">
+          <button class="icon-btn accent" id="settings-cloud" type="button">Use cloud</button>
+        </div>
+      </div>
+      <div class="provider-help"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a Google AI Studio API key ↗</a> · The key stays in the local app config.</div>
+    </div>
     <div class="set-group">
       <label class="title">Appearance</label>
       <div class="radio-row" id="theme-radios">
@@ -675,6 +724,7 @@ const state = {
   processedImage: null,
   sourceView: "original",
   recognizing: false,
+  backend: null,
   settings: Object.assign({}, defaultSettings, loadLocalJson("localtex-settings", defaultSettings)),
   history: loadLocalJson("localtex-history", []),
   historyQuery: "",
@@ -905,8 +955,9 @@ function setResult(latex, elapsed, preprocessing = null) {
   state.latex = latex;
   $("#latex-out").value = latex;
   const mode = preprocessing?.mode;
+  const runtime = state.backend === "gemma-cloud" ? "via AI Studio" : "on-device";
   $("#elapsed").textContent = elapsed != null
-    ? `${elapsed}s on-device${mode ? ` · sharpener ${mode}` : ""}`
+    ? `${elapsed}s ${runtime}${mode ? ` · sharpener ${mode}` : ""}`
     : "";
   renderPreview();
 }
@@ -1508,6 +1559,82 @@ $("#hide-uploads-btn").addEventListener("click", () => {
 
 // Settings dialog
 const dlg = $("#settings-dlg");
+const providerSettings = $("#provider-settings");
+const providerStatus = $("#provider-status");
+let providerSwitching = false;
+
+function describeProvider(p) {
+  if (!p || !p.supported) return "Provider selection is unavailable for this backend.";
+  if (p.mode === "cloud") {
+    return p.api_key_configured
+      ? `Google AI Studio API · ${p.cloud_model} · key ${p.api_key_hint}`
+      : "Google AI Studio API · API key required";
+  }
+  if (p.mode === "local") {
+    return p.local_model_available
+      ? "Local Gemma 4 weights · already downloaded"
+      : "Local Gemma 4 weights · downloads on first use";
+  }
+  return "Choose local weights or Google AI Studio";
+}
+
+async function refreshProviderSettings() {
+  try {
+    const response = await fetch("/api/provider");
+    if (!response.ok) return;
+    const provider = await response.json();
+    providerSettings.hidden = !provider.supported;
+    providerStatus.textContent = describeProvider(provider);
+  } catch {}
+}
+
+async function chooseProvider(mode, apiKey = "") {
+  if (providerSwitching) return;
+  providerSwitching = true;
+  const payload = { mode };
+  if (apiKey.trim()) payload.api_key = apiKey.trim();
+  const localButton = $("#settings-local");
+  const cloudButton = $("#settings-cloud");
+  const setupLocal = $("#setup-local");
+  const setupCloud = $("#setup-cloud");
+  [localButton, cloudButton, setupLocal, setupCloud].forEach((button) => { if (button) button.disabled = true; });
+  try {
+    const response = await fetch("/api/provider", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    if (dlg.open) dlg.close();
+    _ready = false;
+    splashSetup.hidden = true;
+    $("#splash-spinner").hidden = false;
+    splashRetry.hidden = true;
+    showSplash(mode === "cloud" ? "Starting cloud model…" : "Preparing local model…");
+    await pollStatus();
+    startStatusPolling();
+  } catch (error) {
+    toast(error.message || "Could not change provider");
+  } finally {
+    providerSwitching = false;
+    [localButton, cloudButton, setupLocal, setupCloud].forEach((button) => { if (button) button.disabled = false; });
+    $("#setup-api-key").value = "";
+    $("#settings-api-key").value = "";
+    refreshProviderSettings();
+  }
+}
+
+$("#setup-local").addEventListener("click", () => chooseProvider("local"));
+$("#setup-cloud").addEventListener("click", () => chooseProvider("cloud", $("#setup-api-key").value));
+$("#settings-local").addEventListener("click", () => chooseProvider("local"));
+$("#settings-cloud").addEventListener("click", () => chooseProvider("cloud", $("#settings-api-key").value));
+$("#setup-api-key").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") chooseProvider("cloud", event.currentTarget.value);
+});
+$("#settings-api-key").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") chooseProvider("cloud", event.currentTarget.value);
+});
 applyTheme();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   if ((state.settings.theme || "system") === "system") applyTheme();
@@ -1524,6 +1651,7 @@ $("#settings-btn").addEventListener("click", () => {
   dlg.querySelector(`input[name=autocopy][value="${state.settings.autocopy}"]`).checked = true;
   dlg.querySelector(`input[name=theme][value="${state.settings.theme}"]`).checked = true;
   dlg.showModal();
+  refreshProviderSettings();
 });
 $("#dlg-close").addEventListener("click", () => dlg.close());
 dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
@@ -1544,6 +1672,8 @@ const splash = $("#splash");
 const splashMsg = $("#splash-message");
 const splashBar = $("#splash-bar");
 const splashSub = $("#splash-sub");
+const splashSpinner = $("#splash-spinner");
+const splashSetup = $("#splash-setup");
 const splashRetry = $("#splash-retry");
 let _ready = false;
 let _statusTimer = null;
@@ -1552,20 +1682,38 @@ function showSplash(message) { splash.classList.remove("hidden"); if (message) s
 function hideSplash() { splash.classList.add("hidden"); }
 
 function fmtBackendLabel(s) {
-  return s === "pix2tex" ? "pix2tex" : (s === "lfm-vl" ? "LFM2.5-VL" : (s === "mlx" ? "Gemma 4 E2B · MLX" : "Gemma 4 E2B"));
+  return s === "pix2tex" ? "pix2tex" : (s === "lfm-vl" ? "LFM2.5-VL" : (s === "mlx" ? "Gemma 4 E2B · MLX" : (s === "gemma-cloud" ? "Gemma 4 · AI Studio" : "Gemma 4 E2B")));
 }
 
 function applyStatus(s) {
   if (!s) return;
+  state.backend = s.backend || null;
   $("#voice-btn").hidden = !s.audio_supported;
-  const dev = s.device === "cuda" ? "GPU" : (s.device === "metal" ? "Apple Silicon" : "CPU");
+  const dev = s.device === "cuda" ? "GPU" : (s.device === "metal" ? "Apple Silicon" : (s.device === "cloud" ? "Google AI Studio" : "CPU"));
   $("#device-badge").textContent = `${fmtBackendLabel(s.backend)} · ${dev}`;
+  document.title = s.backend === "gemma-cloud" ? "KevinTex — Snip & Get, AI Studio" : "KevinTex — Snip & Get";
+  $("#drop-help").textContent = s.backend === "gemma-cloud"
+    ? "PNG / JPG / BMP / WEBP — images are sent to Google AI Studio"
+    : "PNG / JPG / BMP / WEBP — local mode runs 100% on this machine";
+  if (s.phase === "setup" || s.setup_required) {
+    _ready = false;
+    showSplash("Choose how to run Gemma 4");
+    splashSpinner.hidden = true;
+    splashSetup.hidden = false;
+    splashRetry.hidden = true;
+    splashBar.style.width = "0%";
+    splashSub.textContent = "This choice can be changed later in Settings";
+    return;
+  }
+  splashSpinner.hidden = false;
+  splashSetup.hidden = true;
   if (s.phase === "ready") { _ready = true; hideSplash(); return; }
   if (s.phase === "error") {
     splashMsg.textContent = "Model failed to load";
     splashSub.textContent = s.error || "";
     splashBar.style.width = "0%";
     splashRetry.hidden = false;
+    splashSetup.hidden = !s.provider?.supported;
     return;
   }
   showSplash();
@@ -1573,14 +1721,18 @@ function applyStatus(s) {
   splashBar.style.width = (s.progress || 0) + "%";
   splashSub.textContent = s.phase === "downloading"
     ? "One-time setup — this won't repeat on future launches"
-    : ((s.backend === "gemma" || s.backend === "mlx") ? "Gemma 4 E2B-it · " + dev : dev);
+    : (s.backend === "gemma-cloud" ? "Hosted Gemma 4 · images are sent to Google" : ((s.backend === "gemma" || s.backend === "mlx") ? "Gemma 4 E2B-it · " + dev : dev));
   splashRetry.hidden = true;
 }
 
 async function pollStatus() {
   try {
     const r = await fetch("/api/status");
-    if (r.ok) { const s = await r.json(); applyStatus(s); if (s.phase === "ready") return true; }
+    if (r.ok) {
+      const s = await r.json();
+      applyStatus(s);
+      if (s.phase === "ready" || s.phase === "error") return true;
+    }
   } catch {}
   return false;
 }
@@ -1596,8 +1748,10 @@ function startStatusPolling() {
 async function ensureReady() {
   if (_ready) return true;
   showSplash("Warming up…");
-  while (!await pollStatus()) { await new Promise((r) => setTimeout(r, 1000)); }
-  return _ready;
+  while (true) {
+    if (await pollStatus()) return _ready;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 }
 
 splashRetry.addEventListener("click", () => {

@@ -10,7 +10,7 @@ ICONS="$HOME/.local/share/icons/hicolor/512x512/apps"
 
 mkdir -p "$APP" "$BIN" "$APPS" "$ICONS"
 
-cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$APP/"
+cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/backend_gemma_cloud.py" "$PROJ/provider_config.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$APP/"
 rm -rf "$APP/static" && cp -r "$PROJ/static" "$APP/static"
 install -m 755 "$PROJ/packaging/localtex-launcher" "$BIN/kevintex"
 cp "$PROJ/packaging/kevintex.png" "$ICONS/kevintex.png"
@@ -34,7 +34,11 @@ if [ ! -e "$DATA/venv" ] && [ -x "$PROJ/.venv/bin/uvicorn" ]; then
     ln -s "$PROJ/.venv" "$DATA/venv"
 fi
 
-command -v update-desktop-database >/dev/null && update-desktop-database -q "$APPS" || true
-command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+if command -v update-desktop-database >/dev/null; then
+    update-desktop-database -q "$APPS" || true
+fi
+if command -v gtk-update-icon-cache >/dev/null; then
+    gtk-update-icon-cache -q "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+fi
 
 echo "Installed. Find 'KevinTex' in your app menu, or run: $BIN/kevintex"

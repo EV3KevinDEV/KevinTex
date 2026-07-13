@@ -2,7 +2,7 @@
 Type=Application
 Name=KevinTex
 GenericName=Formula to LaTeX Converter
-Comment=Snip or paste a formula image and get LaTeX — fully offline, free and unlimited
+Comment=Snip or paste a formula image and get LaTeX — local or Google AI Studio
 Exec=kevintex
 Icon=kevintex
 Terminal=false

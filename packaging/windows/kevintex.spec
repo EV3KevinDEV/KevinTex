@@ -18,9 +18,13 @@ if cuda_marker.exists():
 binaries = []
 hiddenimports = [
     "backend_gemma",
+    "backend_gemma_cloud",
     "backend_vlm",
     "image_preprocessing",
+    "provider_config",
     "snip",
+    "google.genai",
+    "google.genai.types",
     "uvicorn.logging",
     "uvicorn.loops.auto",
     "uvicorn.protocols.http.auto",
@@ -34,6 +38,7 @@ for package in ("llama_cpp", "webview"):
     hiddenimports += package_hidden
 
 hiddenimports += collect_submodules("webview")
+hiddenimports += collect_submodules("google.genai")
 
 icon_path = project / "packaging" / "windows" / "kevintex.ico"
 version_path = project / "packaging" / "windows" / "version_info.txt"

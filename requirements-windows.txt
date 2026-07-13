@@ -4,6 +4,7 @@
 
 fastapi
 huggingface-hub
+google-genai>=2.11,<3
 llama-cpp-python>=0.3.34
 pillow
 pyinstaller

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start KevinTex and open it in the browser.
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 ./.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8321 &
 SERVER_PID=$!
 sleep 2

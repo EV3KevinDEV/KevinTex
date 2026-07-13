@@ -160,6 +160,11 @@ def _model_files_ready() -> bool:
     return True
 
 
+def model_files_present() -> bool:
+    """Return whether the local MLX model cache has its required files."""
+    return _model_files_ready()
+
+
 def _ensure_model() -> Path:
     _purge_legacy_models()
     if _model_files_ready():
@@ -270,6 +275,17 @@ class MLXGemmaVisionBackend:
 
     def __call__(self, img, thinking: bool | None = None) -> str:
         return self.recognize(img, thinking=thinking)
+
+    def close(self) -> None:
+        """Drop model references and release cached Metal allocations."""
+        self.model = None
+        self.processor = None
+        try:
+            import mlx.core as mx
+
+            mx.clear_cache()
+        except (ImportError, AttributeError):
+            pass
 
     def recognize(self, img, thinking: bool | None = None) -> str:
         think = self.default_thinking if thinking is None else bool(thinking)
