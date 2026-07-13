@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from backend_vlm import PROMPT, THINKING_PROMPT, _extract_markdown
+from backend_vlm import AUDIO_PROMPT, PROMPT, THINKING_PROMPT, _extract_markdown
 
 log = logging.getLogger("kevintex")
 
@@ -303,6 +303,37 @@ class MLXGemmaVisionBackend:
         text = result.text if hasattr(result, "text") else str(result)
         log.info(
             "MLX Gemma generated in %.2fs (thinking=%s)",
+            time.monotonic() - started,
+            think,
+        )
+        return _extract_markdown(text)
+
+    def recognize_audio(self, audio_path: str, thinking: bool | None = None) -> str:
+        """Convert spoken mathematics in a local audio file to Markdown + LaTeX."""
+        think = self.default_thinking if thinking is None else bool(thinking)
+        formatted = self._apply_chat_template(
+            self.processor,
+            self.model.config,
+            AUDIO_PROMPT,
+            num_audios=1,
+            chat_template_kwargs={"enable_thinking": think},
+        )
+        started = time.monotonic()
+        result = self._generate(
+            model=self.model,
+            processor=self.processor,
+            prompt=formatted,
+            audio=[audio_path],
+            max_tokens=MAX_TOKENS_THINKING if think else MAX_TOKENS_FAST,
+            temperature=0.05 if think else 0.0,
+            top_p=0.9 if think else 0.85,
+            top_k=64,
+            repetition_penalty=1.08,
+            verbose=False,
+        )
+        text = result.text if hasattr(result, "text") else str(result)
+        log.info(
+            "MLX Gemma transcribed audio in %.2fs (thinking=%s)",
             time.monotonic() - started,
             think,
         )

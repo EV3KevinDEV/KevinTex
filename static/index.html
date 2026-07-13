@@ -130,6 +130,8 @@
   #snip-btn:hover { background: var(--snip-hover); }
   #snip-btn svg { width: 22px; height: 22px; }
   #snip-btn.busy svg { animation: spin 1s linear infinite; }
+  #voice-btn[aria-pressed="true"] { border-color: var(--danger); color: var(--danger); background: var(--danger-hover-bg); }
+  #voice-btn[hidden] { display: none; }
   #think-btn { color: var(--muted); }
   #think-btn[aria-pressed="true"] {
     border-color: var(--accent);
@@ -456,6 +458,10 @@
     <button class="icon-btn" id="draw-btn" type="button" title="Handwrite or draw a formula">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m14.5 6.7 2.8 2.8"/></svg>
       <span class="text-on-small">Draw</span>
+    </button>
+    <button class="icon-btn" id="voice-btn" type="button" title="Dictate a formula" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></svg>
+      <span id="voice-label" class="text-on-small">Voice</span>
     </button>
     <button class="icon-btn" id="think-btn" title="Toggle thinking mode (model reasons step-by-step before answering — slower but cleaner on dense pages)" aria-pressed="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z"/></svg>
@@ -842,8 +848,8 @@ function renderHistory() {
     load.type = "button";
     load.setAttribute("aria-label", "Load this conversion");
     const img = document.createElement("img");
-    img.src = item.thumb;
-    img.alt = "";
+    if (item.thumb) { img.src = item.thumb; img.alt = ""; }
+    else { img.hidden = true; }
     const text = document.createElement("span");
     text.className = "hist-text";
     const code = document.createElement("code");
@@ -1293,6 +1299,87 @@ $("#recognize-drawing").addEventListener("click", () => {
   }, "image/png");
 });
 
+// Capture PCM directly and create a 16 kHz mono WAV, avoiding browser-specific
+// MediaRecorder codecs that local audio decoders may not support.
+const voice = { context: null, stream: null, source: null, processor: null, chunks: [], started: 0, timer: null };
+
+function encodeWav(chunks, sourceRate) {
+  const length = chunks.reduce((n, chunk) => n + chunk.length, 0);
+  const input = new Float32Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { input.set(chunk, offset); offset += chunk.length; }
+  const ratio = sourceRate / 16000;
+  const samples = new Int16Array(Math.max(1, Math.floor(input.length / ratio)));
+  for (let i = 0; i < samples.length; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.max(start + 1, Math.min(input.length, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += input[j];
+    const value = Math.max(-1, Math.min(1, sum / (end - start)));
+    samples[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
+  }
+  const buffer = new ArrayBuffer(44 + samples.byteLength);
+  const view = new DataView(buffer);
+  const write = (at, text) => { for (let i = 0; i < text.length; i++) view.setUint8(at + i, text.charCodeAt(i)); };
+  write(0, "RIFF"); view.setUint32(4, 36 + samples.byteLength, true); write(8, "WAVE");
+  write(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, 16000, true); view.setUint32(28, 32000, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); write(36, "data");
+  view.setUint32(40, samples.byteLength, true);
+  for (let i = 0; i < samples.length; i++) view.setInt16(44 + i * 2, samples[i], true);
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+async function stopVoice() {
+  if (!voice.context) return;
+  clearTimeout(voice.timer);
+  $("#voice-btn").setAttribute("aria-pressed", "false");
+  $("#voice-label").textContent = "Voice";
+  voice.processor.disconnect(); voice.source.disconnect();
+  voice.stream.getTracks().forEach((track) => track.stop());
+  const rate = voice.context.sampleRate;
+  await voice.context.close(); voice.context = null;
+  if ((performance.now() - voice.started) < 350 || !voice.chunks.length) return toast("Speak a formula before stopping");
+  setRecognizing(true);
+  try {
+    if (!(await ensureReady())) throw new Error("Model not ready");
+    const fd = new FormData();
+    fd.append("audio", encodeWav(voice.chunks, rate), "kevintex-voice.wav");
+    fd.append("thinking", state.settings.thinking ? "true" : "false");
+    const response = await fetch("/api/voice", { method: "POST", body: fd });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    setResult(data.latex, data.elapsed); setSourceImage(null);
+    state.history.unshift({ latex: data.latex, thumb: null, ts: Date.now() });
+    saveHistory(); renderHistory();
+    if (state.settings.autocopy === "on") await copyText(wrap(data.latex, state.settings.fmt));
+    toast("Voice recognized — LaTeX ready");
+  } catch (error) { toast("Voice: " + error.message); }
+  finally { voice.chunks = []; setRecognizing(false); }
+}
+
+async function startVoice() {
+  if (voice.context || state.recognizing) return;
+  try {
+    voice.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    voice.context = new AudioContext();
+    voice.source = voice.context.createMediaStreamSource(voice.stream);
+    voice.processor = voice.context.createScriptProcessor(4096, 1, 1);
+    voice.chunks = [];
+    voice.processor.onaudioprocess = (event) => voice.chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    voice.source.connect(voice.processor); voice.processor.connect(voice.context.destination);
+    voice.started = performance.now();
+    $("#voice-btn").setAttribute("aria-pressed", "true"); $("#voice-label").textContent = "Stop";
+    toast("Listening — say the formula, then press Stop");
+    voice.timer = setTimeout(stopVoice, 30000);
+  } catch (error) {
+    if (voice.stream) voice.stream.getTracks().forEach((track) => track.stop());
+    voice.context = null; toast("Microphone: " + error.message);
+  }
+}
+
+$("#voice-btn").addEventListener("click", () => voice.context ? stopVoice() : startVoice());
+
 ["dragover", "dragenter"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("dragover"); }));
 ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("dragover"); }));
 dz.addEventListener("drop", (e) => {
@@ -1470,6 +1557,7 @@ function fmtBackendLabel(s) {
 
 function applyStatus(s) {
   if (!s) return;
+  $("#voice-btn").hidden = !s.audio_supported;
   const dev = s.device === "cuda" ? "GPU" : (s.device === "metal" ? "Apple Silicon" : "CPU");
   $("#device-badge").textContent = `${fmtBackendLabel(s.backend)} · ${dev}`;
   if (s.phase === "ready") { _ready = true; hideSplash(); return; }

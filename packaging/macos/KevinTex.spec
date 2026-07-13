@@ -91,5 +91,8 @@ app = BUNDLE(
         "NSScreenCaptureUsageDescription": (
             "KevinTex needs screen recording access when you use Snip & Get."
         ),
+        "NSMicrophoneUsageDescription": (
+            "KevinTex uses the microphone when you dictate a formula."
+        ),
     },
 )

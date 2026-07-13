@@ -56,6 +56,7 @@ log = logging.getLogger("kevintex")
 app = FastAPI(title="KevinTex")
 
 _model = None
+_model_load_error = None
 _model_load_lock = threading.Lock()
 _inference_slots = threading.BoundedSemaphore(INFERENCE_CONCURRENCY)
 
@@ -75,7 +76,7 @@ class ImageTooLargeError(ValueError):
 @app.middleware("http")
 async def limit_upload_content_length(request: Request, call_next):
     """Reject normal oversized multipart requests before Starlette spools them."""
-    if request.url.path in ("/api/convert", "/api/preprocess"):
+    if request.url.path in ("/api/convert", "/api/preprocess", "/api/voice"):
         value = request.headers.get("content-length")
         try:
             content_length = int(value) if value is not None else None
@@ -117,9 +118,12 @@ def get_model():
 
 def _load_in_background() -> None:
     """Load the model off the request path so the server is reachable at once."""
+    global _model_load_error
     try:
         get_model()
+        _model_load_error = None
     except Exception as e:
+        _model_load_error = str(e)
         log.exception("Model load failed")
         if BACKEND in ("gemma", "mlx"):
             try:
@@ -168,6 +172,21 @@ def _run_model(img, thinking: bool | None):
         if hasattr(backend, "recognize"):
             return backend.recognize(img, thinking=thinking)
         return backend(img)
+    finally:
+        _inference_slots.release()
+
+
+def _run_audio(audio_path: str, thinking: bool | None):
+    """Run an audio-capable backend under the shared inference backpressure."""
+    if not _inference_slots.acquire(timeout=INFERENCE_QUEUE_TIMEOUT):
+        raise InferenceBusyError("Inference capacity is busy; retry shortly.")
+    try:
+        backend = get_model()
+        if not hasattr(backend, "recognize_audio"):
+            raise RuntimeError(
+                "Voice-to-LaTeX requires the Apple Silicon MLX backend."
+            )
+        return backend.recognize_audio(audio_path, thinking=thinking)
     finally:
         _inference_slots.release()
 
@@ -323,6 +342,51 @@ async def convert(
         img.close()
 
 
+@app.post("/api/voice")
+async def voice(
+    audio: UploadFile = File(...),
+    thinking: bool | None = Form(None),
+):
+    """Convert a short WAV recording of spoken mathematics to LaTeX."""
+    if BACKEND != "mlx":
+        return JSONResponse(
+            {"error": "Voice-to-LaTeX is available in the Apple Silicon MLX build."},
+            status_code=501,
+        )
+    try:
+        raw = await _read_upload(audio)
+    except UploadTooLargeError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    if len(raw) < 44 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        return JSONResponse({"error": "Voice input must be a WAV recording."}, status_code=400)
+    if not model_ready():
+        return JSONResponse({"error": "model_warming_up"}, status_code=503)
+
+    path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+            handle.write(raw)
+            path = handle.name
+        del raw
+        use_thinking = THINKING_DEFAULT if thinking is None else thinking
+        t0 = time.time()
+        try:
+            latex = await run_in_threadpool(_run_audio, path, use_thinking)
+        except InferenceBusyError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=429)
+        except Exception as exc:
+            log.exception("Voice inference failed")
+            return JSONResponse({"error": f"Voice recognition failed: {exc}"}, status_code=500)
+        elapsed = time.time() - t0
+        return {"latex": latex, "elapsed": round(elapsed, 2), "thinking": use_thinking}
+    finally:
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
 @app.post("/api/snip")
 def snip(
     thinking: bool | None = None,
@@ -410,6 +474,7 @@ def health():
         "backend": BACKEND,
         "model_loaded": _model is not None,
         "thinking_default": THINKING_DEFAULT,
+        "audio_supported": BACKEND == "mlx",
     }
 
 
@@ -420,22 +485,24 @@ def status():
         s = backend_status.get_status()
     else:
         s = {
-            "phase": "ready" if model_ready() else "loading",
+            "phase": "ready" if model_ready() else ("error" if _model_load_error else "loading"),
             "progress": 0,
-            "message": "Ready" if model_ready() else "Loading model…",
-            "error": None,
+            "message": "Ready" if model_ready() else ("Model load failed" if _model_load_error else "Loading model…"),
+            "error": _model_load_error,
         }
     s["backend"] = BACKEND
     s["device"] = _device_label()
     s["model_loaded"] = model_ready()
+    s["audio_supported"] = BACKEND == "mlx"
     return s
 
 
 @app.post("/api/reload")
 def reload():
     """Re-trigger the background model load after a failure (splash Retry button)."""
-    global _model
+    global _model, _model_load_error
     if _model is None and not _loading_active():
+        _model_load_error = None
         if BACKEND in ("gemma", "mlx"):
             try:
                 backend_status = _backend_status_module()
@@ -455,7 +522,7 @@ def _loading_active() -> bool:
             return backend_status.get_status()["phase"] in ("downloading", "loading")
         except Exception:
             return False
-    return _model is None
+    return _model is None and _model_load_error is None
 
 
 @app.get("/")

@@ -41,6 +41,18 @@ THINKING_PROMPT = (
     "- If unreadable, output exactly `LATEX:` with nothing after it."
 )
 
+AUDIO_PROMPT = (
+    "Listen to the spoken mathematical expression and convert it to Markdown + LaTeX.\n"
+    "Reply with exactly ONE line in this format:\n"
+    "LATEX: <markdown transcription>\n"
+    "Interpret spoken math structurally: for example, 'x squared' is $x^2$, "
+    "'one half' is $\\frac{1}{2}$, and spoken limits, sums, roots, matrices, "
+    "Greek letters, subscripts, and superscripts should use standard LaTeX.\n"
+    "Use plain text only for clearly dictated prose, inline math in $...$, and "
+    "display math in $$...$$. Do not explain, solve, or add content.\n"
+    "If the audio is blank or unintelligible, reply exactly: LATEX:"
+)
+
 # Default generation settings from the model card.
 GEN_KWARGS = dict(
     do_sample=True,

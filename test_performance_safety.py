@@ -18,6 +18,22 @@ from pathlib import Path
 
 
 class ModelInitializationTests(unittest.TestCase):
+    def test_generic_backend_load_error_reaches_status(self):
+        previous_backend = app.BACKEND
+        previous_model = app._model
+        previous_error = app._model_load_error
+        app.BACKEND = "pix2tex"
+        app._model = None
+        app._model_load_error = "missing optional dependency"
+        try:
+            result = app.status()
+        finally:
+            app.BACKEND = previous_backend
+            app._model = previous_model
+            app._model_load_error = previous_error
+        self.assertEqual(result["phase"], "error")
+        self.assertIn("missing optional dependency", result["error"])
+
     def test_concurrent_get_model_initializes_once(self):
         sentinel = object()
         calls = 0
@@ -77,6 +93,30 @@ class ModelInitializationTests(unittest.TestCase):
 
 
 class InferenceConcurrencyTests(unittest.TestCase):
+    def test_mlx_audio_uses_documented_multimodal_arguments(self):
+        class Result:
+            text = "LATEX: $x^2 + y^2$"
+
+        calls = {}
+        backend = backend_mlx.MLXGemmaVisionBackend.__new__(backend_mlx.MLXGemmaVisionBackend)
+        backend.default_thinking = False
+        backend.model = type("Model", (), {"config": object()})()
+        backend.processor = object()
+
+        def template(*args, **kwargs):
+            calls["template"] = (args, kwargs)
+            return "formatted"
+
+        def generate(**kwargs):
+            calls["generate"] = kwargs
+            return Result()
+
+        backend._apply_chat_template = template
+        backend._generate = generate
+        self.assertEqual(backend.recognize_audio("/tmp/formula.wav"), "$x^2 + y^2$")
+        self.assertEqual(calls["template"][1]["num_audios"], 1)
+        self.assertEqual(calls["generate"]["audio"], ["/tmp/formula.wav"])
+
     def test_gemma_context_is_never_entered_concurrently(self):
         active = 0
         max_active = 0
@@ -188,6 +228,26 @@ class UploadLimitTests(unittest.TestCase):
         with patch.object(app.Image, "open", return_value=OversizedHeader()):
             with self.assertRaisesRegex(ValueError, "50 megapixels"):
                 app._open_image(b"header-only")
+
+    def test_voice_is_rejected_on_backend_without_audio(self):
+        previous_backend = app.BACKEND
+        app.BACKEND = "gemma"
+        upload = UploadFile(io.BytesIO(b"not audio"), filename="voice.wav")
+        try:
+            response = asyncio.run(app.voice(upload, thinking=False))
+        finally:
+            app.BACKEND = previous_backend
+        self.assertEqual(response.status_code, 501)
+
+    def test_voice_validates_wav_before_inference(self):
+        previous_backend = app.BACKEND
+        app.BACKEND = "mlx"
+        upload = UploadFile(io.BytesIO(b"x" * 64), filename="voice.wav")
+        try:
+            response = asyncio.run(app.voice(upload, thinking=False))
+        finally:
+            app.BACKEND = previous_backend
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":

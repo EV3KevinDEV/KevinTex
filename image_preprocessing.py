@@ -16,6 +16,7 @@ VALID_MODES = frozenset(("off", "auto", "strong"))
 VALID_ROTATIONS = frozenset((0, 90, 180, 270))
 MAX_INPUT_PIXELS = 50_000_000
 MAX_OUTPUT_EDGE = 3600
+LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
 
 
 def validate_options(mode: str, rotation: int) -> tuple[PreprocessMode, int]:
@@ -87,7 +88,7 @@ def preprocess_image(
             max(1, round(gray.width * factor)),
             max(1, round(gray.height * factor)),
         )
-        gray = gray.resize(size, Image.Resampling.LANCZOS)
+        gray = gray.resize(size, LANCZOS)
 
     if selected == "strong":
         gray = gray.filter(ImageFilter.UnsharpMask(radius=1.4, percent=190, threshold=2))
