@@ -1,0 +1,121 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag (for example v1.2.3)
+        required: true
+        type: string
+      acceleration:
+        description: llama.cpp build to package
+        required: true
+        default: cpu
+        type: choice
+        options:
+          - cpu
+          - cuda
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        env:
+          DISPATCH_TAG: ${{ inputs.release_tag }}
+          DISPATCH_ACCELERATION: ${{ inputs.acceleration }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:DISPATCH_TAG
+          if (-not $tag) {
+            if ($env:GITHUB_REF_TYPE -ne "tag") {
+              throw "A release tag is required."
+            }
+            $tag = $env:GITHUB_REF_NAME
+          }
+          if ($tag -notmatch '^v\d+(?:\.\d+){0,3}$') {
+            throw "Release tag '$tag' must look like v1.2.3."
+          }
+          $acceleration = if ($env:DISPATCH_ACCELERATION) {
+            $env:DISPATCH_ACCELERATION
+          } else {
+            "cpu"
+          }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release '$tag' does not exist; create it before running this workflow."
+          }
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "VERSION=$($tag.TrimStart('v'))" >> $env:GITHUB_ENV
+          "ACCELERATION=$acceleration" >> $env:GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-windows.txt
+
+      - name: Install Windows dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-windows.txt
+
+      - name: Replace runtime with CUDA wheels
+        if: env.ACCELERATION == 'cuda'
+        run: |
+          python -m pip uninstall -y llama-cpp-python torch
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
+          python -m pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+          Set-Content -Path packaging/windows/cuda_enabled.txt -Value "CUDA build"
+
+      - name: Run source checks
+        run: |
+          python -m py_compile desktop.py packaging/windows/generate_icon.py packaging/windows/generate_version_info.py
+          python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('app.py', 'backend_gemma.py', 'backend_vlm.py', 'image_preprocessing.py', 'snip.py')]"
+          python packaging/windows/generate_version_info.py $env:RELEASE_TAG
+          python packaging/windows/generate_icon.py
+
+      - name: Build native desktop application
+        run: |
+          pyinstaller --clean --noconfirm packaging/windows/kevintex.spec
+
+      - name: Smoke-test packaged application
+        run: |
+          $process = Start-Process -FilePath "dist/KevinTex/KevinTex.exe" -ArgumentList "--smoke-test" -PassThru -Wait
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged application smoke test failed with exit code $($process.ExitCode)."
+          }
+          if (-not (Test-Path "dist/KevinTex/_internal/static/index.html")) {
+            throw "Packaged frontend data is missing."
+          }
+
+      - name: Create versioned ZIP
+        run: |
+          $suffix = if ($env:ACCELERATION -eq "cuda") { "-cuda" } else { "" }
+          $archive = "KevinTex-$env:VERSION-windows-x64$suffix.zip"
+          Compress-Archive -Path "dist/KevinTex/*" -DestinationPath $archive
+          "ARCHIVE=$archive" >> $env:GITHUB_ENV
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KevinTex-${{ env.VERSION }}-windows-x64-${{ env.ACCELERATION }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+      - name: Upload to existing GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload $env:RELEASE_TAG $env:ARCHIVE --clobber --repo $env:GITHUB_REPOSITORY

@@ -49,13 +49,34 @@ def get_status() -> dict:
 _DEFAULT_MODELS_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "models"
 )
+MAX_TOKENS_FAST = 1024
+MAX_TOKENS_THINKING = 8192
+_MIN_THINKING_CONTEXT = MAX_TOKENS_THINKING + 1024
+
+
+def _env_int(name: str, default: int, minimum: int | None = None) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        log.warning("Ignoring invalid %s value", name)
+        return default
+    if minimum is not None and value < minimum:
+        log.warning("%s=%d is below the safe minimum %d; using %d",
+                    name, value, minimum, minimum)
+        return minimum
+    return value
+
+
 MODELS_DIR = os.environ.get("LOCALTEX_MODELS_DIR", _DEFAULT_MODELS_DIR)
 MODEL_DIR = os.path.join(MODELS_DIR, "gemma-4-E2B-it")
 
-N_CTX = 16384
-N_GPU_LAYERS = -1  # offload everything to the GPU
-MAX_TOKENS_FAST = 1024
-MAX_TOKENS_THINKING = 8192
+# Keep enough context for the full 8192-token thinking budget plus image/prompt
+# tokens. These map directly to options supported by installed llama-cpp-python
+# 0.3.34; defaults preserve existing behavior.
+N_CTX = _env_int("LOCALTEX_N_CTX", 16384, _MIN_THINKING_CONTEXT)
+N_GPU_LAYERS = _env_int("LOCALTEX_N_GPU_LAYERS", -1)
+N_BATCH = _env_int("LOCALTEX_N_BATCH", 512, 1)
+N_THREADS = _env_int("LOCALTEX_N_THREADS", 0, 0) or None
 
 # Reuse the exact prompt text + cleanup from the LFM backend so output style is
 # identical across backends.
@@ -148,9 +169,9 @@ def _ensure_model_files() -> tuple[str, str]:
 
 def _img_to_data_url(img) -> str:
     """PIL.Image -> base64 PNG data URL."""
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    b64 = base64.b64encode(buf.getvalue()).decode()
+    with io.BytesIO() as buf:
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getbuffer()).decode("ascii")
     return f"data:image/png;base64,{b64}"
 
 
@@ -170,6 +191,9 @@ class GemmaVisionBackend:
         from llama_cpp.llama_chat_format import Gemma4ChatHandler
 
         self.default_thinking = bool(thinking) if thinking is not None else False
+        # A llama.cpp Llama instance owns one mutable context/KV cache. Its chat
+        # completion API is not safe for concurrent calls on that same context.
+        self._inference_lock = threading.Lock()
 
         set_status("downloading", 0, "Checking model files…")
         main_path, mmproj_path = _ensure_model_files()
@@ -182,15 +206,20 @@ class GemmaVisionBackend:
         handler = Gemma4ChatHandler(
             clip_model_path=mmproj_path,
             verbose=False,
-            use_gpu=True,
+            use_gpu=N_GPU_LAYERS != 0,
         )
-        self.llm = Llama(
+        llama_options = dict(
             model_path=main_path,
             chat_handler=handler,
             n_gpu_layers=N_GPU_LAYERS,
             n_ctx=N_CTX,
+            n_batch=N_BATCH,
             verbose=False,
         )
+        if N_THREADS is not None:
+            llama_options["n_threads"] = N_THREADS
+            llama_options["n_threads_batch"] = N_THREADS
+        self.llm = Llama(**llama_options)
         log.info("Gemma loaded in %.1fs (n_ctx=%d, thinking=%s)",
                  time.time() - t0, N_CTX, self.default_thinking)
         set_status("ready", 100, "Ready")
@@ -205,26 +234,34 @@ class GemmaVisionBackend:
         max_tokens = MAX_TOKENS_THINKING if think else MAX_TOKENS_FAST
 
         # Image BEFORE text, per Gemma multimodal docs.
+        data_url = _img_to_data_url(img)
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "image_url", "image_url": {"url": _img_to_data_url(img)}},
+                    {"type": "image_url", "image_url": {"url": data_url}},
                     {"type": "text", "text": prompt},
                 ],
             }
         ]
 
-        t0 = time.time()
-        resp = self.llm.create_chat_completion(
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.1,
-            top_p=0.95,
-            repeat_penalty=1.05,
-            stream=False,
-        )
-        elapsed = time.time() - t0
+        try:
+            with self._inference_lock:
+                t0 = time.perf_counter()
+                resp = self.llm.create_chat_completion(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=0.1,
+                    top_p=0.95,
+                    repeat_penalty=1.05,
+                    stream=False,
+                )
+                elapsed = time.perf_counter() - t0
+        finally:
+            # Drop the expanded PNG/base64 request graph promptly; a page-sized
+            # screenshot can otherwise survive until later cyclic GC activity.
+            messages.clear()
+            data_url = ""
         content = resp["choices"][0]["message"].get("content") or ""
         usage = resp.get("usage", {}) or {}
         gen_tokens = usage.get("completion_tokens", 0)

@@ -2,7 +2,7 @@
 # Build kevintex_<version>_all.deb from the project sources.
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.2.0"
 PROJ="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -15,7 +15,7 @@ install -d "$PKG/opt/kevintex" "$PKG/usr/bin" \
            "$PKG/usr/share/icons/hicolor/scalable/apps" \
            "$PKG/usr/share/doc/kevintex"
 
-cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$PKG/opt/kevintex/"
+cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$PKG/opt/kevintex/"
 cp -r "$PROJ/static" "$PKG/opt/kevintex/static"
 cp "$PROJ/README.md" "$PKG/usr/share/doc/kevintex/"
 install -m 755 "$PROJ/packaging/localtex-launcher" "$PKG/usr/bin/kevintex"

@@ -1,0 +1,13 @@
+# Windows desktop/runtime dependencies. The extra index supplies prebuilt
+# llama.cpp CPU wheels so the default release does not require a C++ toolchain.
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+fastapi
+huggingface-hub
+llama-cpp-python
+pillow
+pyinstaller
+pywebview
+python-multipart
+torch
+uvicorn

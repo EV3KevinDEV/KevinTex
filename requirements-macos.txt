@@ -1,0 +1,12 @@
+# Apple Silicon runtime. mlx-vlm 0.6.4 includes Gemma 4 multimodal support and
+# returns a GenerationResult from its Python generate() API.
+mlx-vlm>=0.6.4,<0.7
+huggingface-hub>=0.34
+pillow>=10
+fastapi>=0.115
+uvicorn>=0.34
+python-multipart>=0.0.20
+pywebview>=6.0,<7
+
+# Build-only dependency used by packaging/macos/KevinTex.spec.
+pyinstaller>=6.18,<7

@@ -64,7 +64,7 @@
     gap: 6px;
   }
   .icon-btn:hover { background: var(--bg); }
-  button:focus-visible, input:focus-visible, textarea:focus-visible, #drop-zone:focus-visible {
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, #drop-zone:focus-visible, canvas:focus-visible {
     outline: 3px solid rgba(59, 130, 246, .35);
     outline-offset: 2px;
   }
@@ -100,6 +100,18 @@
   }
 
   /* Split: KaTeX preview (left) + source image (right) */
+  .image-tools {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    flex-wrap: wrap; margin-bottom: 10px; padding: 9px 12px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .image-tools-group { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .tool-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .compact-select {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+    color: var(--text); padding: 6px 28px 6px 9px; font: inherit; font-size: 13px;
+  }
+  .check-tool { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; cursor: pointer; }
   .split-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
   .split-wrap { display: flex; gap: 0; margin-bottom: 18px; align-items: stretch; }
   .split-wrap .split-left { flex: 2 2 0; min-width: 0; margin-bottom: 0; }
@@ -113,6 +125,10 @@
     display: flex; align-items: center; justify-content: space-between;
     gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #fafbfc;
   }
+  .side-actions { display: flex; align-items: center; gap: 6px; }
+  .view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; }
+  .view-toggle button { border: 0; padding: 4px 8px; background: var(--card); color: var(--muted); font-size: 11px; cursor: pointer; }
+  .view-toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   .side-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
   .pill-btn {
     border: 1px solid var(--border); background: var(--card); border-radius: 20px;
@@ -253,7 +269,7 @@
   .hist-empty { padding: 18px; color: var(--muted); font-size: 13px; text-align: center; }
   .history-status { font-size: 12px; color: var(--muted); }
 
-  /* Settings modal */
+  /* Settings and drawing modals */
   dialog {
     border: none;
     border-radius: var(--radius);
@@ -274,6 +290,22 @@
   .set-group > label.title { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
   .radio-row { display: flex; flex-wrap: wrap; gap: 6px 16px; }
   .radio-row label { font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: #444; }
+  #draw-dlg { width: min(880px, 96vw); }
+  .draw-body { padding: 14px 16px 16px; }
+  .draw-tools { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
+  .draw-tools .active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .stroke-control { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+  .stroke-control input { width: 110px; }
+  .draw-spacer { flex: 1; }
+  .template-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .template-row .tool-label { margin-right: 2px; }
+  .draw-stage {
+    width: 100%; height: clamp(280px, 50vh, 480px); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; background: white; box-shadow: inset 0 1px 3px rgba(0,0,0,.05);
+  }
+  #draw-canvas { display: block; width: 100%; height: 100%; background: white; cursor: crosshair; touch-action: none; }
+  #draw-canvas.eraser { cursor: cell; }
+  .draw-hint { margin-top: 8px; font-size: 11px; color: var(--muted); }
 
   #toast {
     position: fixed;
@@ -299,6 +331,12 @@
     .history-head { align-items: stretch; flex-direction: column; }
     .history-tools { flex-wrap: wrap; }
     .history-search { width: 100%; flex: 1 1 100%; }
+    header { padding: 10px 12px; }
+    header h1 { font-size: 15px; }
+    .header-actions .text-on-small { display: none; }
+    .image-tools { align-items: flex-start; }
+    .draw-spacer { display: none; }
+    .draw-tools { align-items: stretch; }
   }
 
   /* ---- Splash / loading screen ---- */
@@ -361,6 +399,10 @@
       </svg>
       <span>Snip</span>
     </button>
+    <button class="icon-btn" id="draw-btn" type="button" title="Handwrite or draw a formula">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m14.5 6.7 2.8 2.8"/></svg>
+      <span class="text-on-small">Draw</span>
+    </button>
     <button class="icon-btn" id="think-btn" title="Toggle thinking mode (model reasons step-by-step before answering — slower but cleaner on dense pages)" aria-pressed="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z"/></svg>
       <span>Think</span>
@@ -375,6 +417,23 @@
 </header>
 
 <main>
+  <div class="image-tools" aria-label="Image preprocessing controls">
+    <div class="image-tools-group">
+      <label class="tool-label" for="preprocess-mode">Text sharpener</label>
+      <select id="preprocess-mode" class="compact-select" title="Enhance contrast and fine formula strokes before recognition">
+        <option value="off">Off</option>
+        <option value="auto">Auto</option>
+        <option value="strong">Strong</option>
+      </select>
+      <label class="check-tool" title="Invert dark screenshots before recognition"><input id="invert-image" type="checkbox"> Invert</label>
+    </div>
+    <div class="image-tools-group">
+      <span class="tool-label">Rotate before OCR</span>
+      <button class="pill-btn" id="rotate-left" type="button" title="Rotate 90° counterclockwise">↶ 90°</button>
+      <button class="pill-btn" id="rotate-right" type="button" title="Rotate 90° clockwise">↷ 90°</button>
+      <span class="tool-label" id="rotation-label">0°</span>
+    </div>
+  </div>
   <div class="split-toolbar">
     <button class="pill-btn" id="hide-uploads-btn" type="button" aria-pressed="false">Hide uploads</button>
   </div>
@@ -386,8 +445,14 @@
     <div class="card split-right" id="source-card">
       <div class="side-head">
         <span class="side-title">Source image</span>
-        <button class="pill-btn" id="retry-btn" type="button" disabled
-                title="Recognize this image again using the current Thinking mode">Recognize again</button>
+        <div class="side-actions">
+          <span class="view-toggle" id="source-view-toggle" hidden>
+            <button id="view-original" type="button" aria-pressed="true">Original</button>
+            <button id="view-processed" type="button" aria-pressed="false">Processed</button>
+          </span>
+          <button class="pill-btn" id="retry-btn" type="button" disabled
+                  title="Recognize this image again using the current Thinking mode">Recognize again</button>
+        </div>
       </div>
       <div class="side-body" id="source-body">
         <div class="side-empty">No image yet. Snip, paste, or drop a formula image.</div>
@@ -462,6 +527,40 @@
   </div>
 </dialog>
 
+<dialog id="draw-dlg" aria-labelledby="draw-title">
+  <div class="dlg-head">
+    <h3 id="draw-title">Draw a formula</h3>
+    <button class="icon-btn" id="draw-close" type="button" aria-label="Close drawing pad">✕</button>
+  </div>
+  <div class="draw-body">
+    <div class="draw-tools" role="toolbar" aria-label="Drawing tools">
+      <button class="icon-btn active" id="pen-tool" type="button" aria-pressed="true">Pen</button>
+      <button class="icon-btn" id="eraser-tool" type="button" aria-pressed="false">Eraser</button>
+      <label class="stroke-control" for="stroke-width">Width
+        <input id="stroke-width" type="range" min="1" max="28" value="5">
+        <output id="stroke-value" for="stroke-width">5</output>
+      </label>
+      <button class="icon-btn" id="undo-draw" type="button" disabled title="Undo (Ctrl+Z)">Undo</button>
+      <button class="icon-btn" id="redo-draw" type="button" disabled title="Redo (Ctrl+Y)">Redo</button>
+      <button class="icon-btn" id="clear-draw" type="button">Clear</button>
+      <span class="draw-spacer"></span>
+      <button class="icon-btn" id="draw-cancel" type="button">Cancel</button>
+      <button class="icon-btn accent" id="recognize-drawing" type="button">Recognize</button>
+    </div>
+    <div class="template-row" aria-label="Formula templates">
+      <span class="tool-label">Templates</span>
+      <button class="pill-btn draw-template" type="button" data-template="fraction">Fraction</button>
+      <button class="pill-btn draw-template" type="button" data-template="root">Root</button>
+      <button class="pill-btn draw-template" type="button" data-template="integral">Integral</button>
+      <button class="pill-btn draw-template" type="button" data-template="matrix">Matrix</button>
+    </div>
+    <div class="draw-stage">
+      <canvas id="draw-canvas" tabindex="0" aria-label="White formula drawing canvas. Draw with mouse, pen, or touch."></canvas>
+    </div>
+    <div class="draw-hint">Draw in dark ink. Touch and pen input stay inside the pad. Ctrl+Z/Ctrl+Y undo and redo.</div>
+  </div>
+</dialog>
+
 <dialog id="clear-history-dlg" aria-labelledby="clear-history-title">
   <div class="dlg-head">
     <h3 id="clear-history-title">Clear conversion history?</h3>
@@ -489,14 +588,28 @@ function loadLocalJson(key, fallback) {
   }
 }
 
+const defaultSettings = {
+  fmt: "display-dollar",
+  autocopy: "on",
+  thinking: false,
+  preprocess: "auto",
+  rotation: 0,
+  invert: false,
+};
 const state = {
   latex: "",
   sourceImage: null,
+  processedImage: null,
+  sourceView: "original",
   recognizing: false,
-  settings: loadLocalJson("localtex-settings", { fmt: "display-dollar", autocopy: "on", thinking: false }),
+  settings: Object.assign({}, defaultSettings, loadLocalJson("localtex-settings", defaultSettings)),
   history: loadLocalJson("localtex-history", []),
   historyQuery: "",
 };
+if (!["off", "auto", "strong"].includes(state.settings.preprocess)) state.settings.preprocess = "auto";
+if (![0, 90, 180, 270].includes(Number(state.settings.rotation))) state.settings.rotation = 0;
+state.settings.rotation = Number(state.settings.rotation);
+state.settings.invert = !!state.settings.invert;
 if (!Array.isArray(state.history)) state.history = [];
 
 function saveSettings() { localStorage.setItem("localtex-settings", JSON.stringify(state.settings)); }
@@ -694,22 +807,47 @@ function downloadLatex() {
   toast("Downloaded .tex file");
 }
 
-function setResult(latex, elapsed) {
+function setResult(latex, elapsed, preprocessing = null) {
   state.latex = latex;
   $("#latex-out").value = latex;
-  $("#elapsed").textContent = elapsed != null ? `${elapsed}s on-device` : "";
+  const mode = preprocessing?.mode;
+  $("#elapsed").textContent = elapsed != null
+    ? `${elapsed}s on-device${mode ? ` · sharpener ${mode}` : ""}`
+    : "";
   renderPreview();
 }
 
-function setSourceImage(thumb) {
-  state.sourceImage = thumb || null;
-  $("#retry-btn").disabled = !state.sourceImage || state.recognizing;
+function renderSourceImage() {
   const body = $("#source-body");
-  if (!state.sourceImage) {
-    body.innerHTML = '<div class="side-empty">No image yet. Snip, paste, or drop a formula image.</div>';
+  const shown = state.sourceView === "processed" ? state.processedImage : state.sourceImage;
+  if (!shown) {
+    body.innerHTML = '<div class="side-empty">No image yet. Snip, paste, draw, or drop a formula image.</div>';
     return;
   }
-  body.innerHTML = `<img src="${state.sourceImage}" alt="source formula">`;
+  body.innerHTML = "";
+  const img = document.createElement("img");
+  img.src = shown;
+  img.alt = state.sourceView === "processed" ? "processed formula preview" : "source formula";
+  body.appendChild(img);
+}
+
+function selectSourceView(view) {
+  if (view === "processed" && !state.processedImage) return;
+  state.sourceView = view;
+  $("#view-original").setAttribute("aria-pressed", String(view === "original"));
+  $("#view-processed").setAttribute("aria-pressed", String(view === "processed"));
+  renderSourceImage();
+}
+
+function setSourceImage(thumb) {
+  if (state.processedImage?.startsWith("blob:")) URL.revokeObjectURL(state.processedImage);
+  state.sourceImage = thumb || null;
+  state.processedImage = null;
+  state.sourceView = "original";
+  $("#retry-btn").disabled = !state.sourceImage || state.recognizing;
+  $("#source-view-toggle").hidden = !state.sourceImage;
+  $("#view-processed").disabled = !state.sourceImage;
+  selectSourceView("original");
 }
 
 function setRecognizing(busy) {
@@ -719,6 +857,12 @@ function setRecognizing(busy) {
   const retry = $("#retry-btn");
   retry.disabled = busy || !state.sourceImage;
   retry.textContent = busy ? "Recognizing…" : "Recognize again";
+}
+
+function appendImageOptions(fd) {
+  fd.append("preprocess", state.settings.preprocess);
+  fd.append("rotation", String(state.settings.rotation));
+  fd.append("invert", state.settings.invert ? "true" : "false");
 }
 
 async function convert(file) {
@@ -736,11 +880,12 @@ async function convert(file) {
     const fd = new FormData();
     fd.append("image", file, file.name || "clipboard.png");
     fd.append("thinking", state.settings.thinking ? "true" : "false");
+    appendImageOptions(fd);
     const resp = await fetch("/api/convert", { method: "POST", body: fd });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || resp.statusText);
 
-    setResult(data.latex, data.elapsed);
+    setResult(data.latex, data.elapsed, data.preprocessing);
     state.history.unshift({ latex: data.latex, thumb, ts: Date.now() });
     saveHistory();
     renderHistory();
@@ -757,6 +902,46 @@ async function convert(file) {
   } finally {
     setRecognizing(false);
   }
+}
+
+async function sourceFile() {
+  if (!state.sourceImage) throw new Error("No source image");
+  const blob = await (await fetch(state.sourceImage)).blob();
+  const ext = blob.type.split("/")[1] || "png";
+  return new File([blob], `kevintex-source.${ext}`, { type: blob.type || "image/png" });
+}
+
+async function showProcessedPreview() {
+  if (!state.sourceImage) return;
+  if (state.processedImage) return selectSourceView("processed");
+  const btn = $("#view-processed");
+  btn.disabled = true;
+  btn.textContent = "Preparing…";
+  try {
+    const fd = new FormData();
+    fd.append("image", await sourceFile());
+    appendImageOptions(fd);
+    const resp = await fetch("/api/preprocess", { method: "POST", body: fd });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || resp.statusText);
+    }
+    const blob = await resp.blob();
+    state.processedImage = URL.createObjectURL(blob);
+    selectSourceView("processed");
+  } catch (e) {
+    toast("Preview: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Processed";
+  }
+}
+
+function invalidateProcessedPreview() {
+  if (state.processedImage?.startsWith("blob:")) URL.revokeObjectURL(state.processedImage);
+  state.processedImage = null;
+  if (state.sourceView === "processed") selectSourceView("original");
+  $("#view-processed").disabled = !state.sourceImage;
 }
 
 // --- wiring ---
@@ -776,13 +961,44 @@ $("#file-input").addEventListener("change", (e) => {
 $("#retry-btn").addEventListener("click", async () => {
   if (!state.sourceImage || state.recognizing) return;
   try {
-    const blob = await (await fetch(state.sourceImage)).blob();
-    const ext = blob.type.split("/")[1] || "png";
-    await convert(new File([blob], `kevintex-retry.${ext}`, { type: blob.type || "image/png" }));
+    await convert(await sourceFile());
   } catch (e) {
     toast("Could not retry this image: " + e.message);
   }
 });
+$("#view-original").addEventListener("click", () => selectSourceView("original"));
+$("#view-processed").addEventListener("click", showProcessedPreview);
+
+const preprocessMode = $("#preprocess-mode");
+const invertImage = $("#invert-image");
+preprocessMode.value = state.settings.preprocess;
+invertImage.checked = state.settings.invert;
+function syncImageTools() {
+  preprocessMode.value = state.settings.preprocess;
+  invertImage.checked = state.settings.invert;
+  $("#rotation-label").textContent = `${state.settings.rotation}°`;
+  invalidateProcessedPreview();
+  saveSettings();
+}
+preprocessMode.addEventListener("change", () => {
+  state.settings.preprocess = preprocessMode.value;
+  syncImageTools();
+  toast(`Text sharpener: ${state.settings.preprocess}`);
+});
+invertImage.addEventListener("change", () => {
+  state.settings.invert = invertImage.checked;
+  syncImageTools();
+  toast(state.settings.invert ? "Dark image inversion ON" : "Dark image inversion OFF");
+});
+$("#rotate-left").addEventListener("click", () => {
+  state.settings.rotation = (state.settings.rotation + 270) % 360;
+  syncImageTools();
+});
+$("#rotate-right").addEventListener("click", () => {
+  state.settings.rotation = (state.settings.rotation + 90) % 360;
+  syncImageTools();
+});
+$("#rotation-label").textContent = `${state.settings.rotation}°`;
 
 const thinkBtn = $("#think-btn");
 function syncThinkBtn() {
@@ -796,6 +1012,197 @@ thinkBtn.addEventListener("click", () => {
   saveSettings();
   syncThinkBtn();
   toast(state.settings.thinking ? "Thinking mode ON — slower, cleaner on dense pages" : "Thinking mode OFF");
+});
+
+// Drawing pad: pressure-friendly pointer input with undo/redo snapshots.
+const drawDlg = $("#draw-dlg");
+const drawCanvas = $("#draw-canvas");
+const drawCtx = drawCanvas.getContext("2d", { willReadFrequently: true });
+const drawing = { active: false, tool: "pen", undo: [], redo: [], last: null };
+
+function updateDrawButtons() {
+  $("#undo-draw").disabled = drawing.undo.length <= 1;
+  $("#redo-draw").disabled = drawing.redo.length === 0;
+  $("#pen-tool").classList.toggle("active", drawing.tool === "pen");
+  $("#eraser-tool").classList.toggle("active", drawing.tool === "eraser");
+  $("#pen-tool").setAttribute("aria-pressed", String(drawing.tool === "pen"));
+  $("#eraser-tool").setAttribute("aria-pressed", String(drawing.tool === "eraser"));
+  drawCanvas.classList.toggle("eraser", drawing.tool === "eraser");
+}
+
+function blankDrawing() {
+  drawCtx.save();
+  drawCtx.globalCompositeOperation = "source-over";
+  drawCtx.fillStyle = "#fff";
+  drawCtx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+  drawCtx.restore();
+}
+
+function drawSnapshot() {
+  return drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+}
+
+function pushDrawState() {
+  drawing.undo.push(drawSnapshot());
+  if (drawing.undo.length > 28) drawing.undo.shift();
+  drawing.redo = [];
+  updateDrawButtons();
+}
+
+function sizeDrawingCanvas() {
+  const rect = drawCanvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  drawCanvas.width = Math.max(1, Math.round(rect.width * dpr));
+  drawCanvas.height = Math.max(1, Math.round(rect.height * dpr));
+  blankDrawing();
+  drawing.undo = [drawSnapshot()];
+  drawing.redo = [];
+  updateDrawButtons();
+}
+
+function drawingPoint(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * drawCanvas.width / rect.width,
+    y: (e.clientY - rect.top) * drawCanvas.height / rect.height,
+  };
+}
+
+function startDrawing(e) {
+  if (e.button != null && e.button !== 0) return;
+  e.preventDefault();
+  drawing.active = true;
+  drawing.last = drawingPoint(e);
+  drawCanvas.setPointerCapture(e.pointerId);
+  const scale = drawCanvas.width / drawCanvas.getBoundingClientRect().width;
+  const radius = Number($("#stroke-width").value) * scale * (drawing.tool === "eraser" ? 1.1 : .5);
+  drawCtx.save();
+  drawCtx.fillStyle = drawing.tool === "eraser" ? "#fff" : "#111";
+  drawCtx.beginPath();
+  drawCtx.arc(drawing.last.x, drawing.last.y, radius, 0, Math.PI * 2);
+  drawCtx.fill();
+  drawCtx.restore();
+  drawCtx.beginPath();
+  drawCtx.moveTo(drawing.last.x, drawing.last.y);
+}
+
+function moveDrawing(e) {
+  if (!drawing.active) return;
+  e.preventDefault();
+  const point = drawingPoint(e);
+  const scale = drawCanvas.width / drawCanvas.getBoundingClientRect().width;
+  const pressure = e.pointerType === "pen" && e.pressure > 0 ? Math.max(.55, e.pressure) : 1;
+  drawCtx.save();
+  drawCtx.globalCompositeOperation = "source-over";
+  drawCtx.strokeStyle = drawing.tool === "eraser" ? "#fff" : "#111";
+  drawCtx.lineWidth = Number($("#stroke-width").value) * scale * (drawing.tool === "eraser" ? 2.2 : pressure);
+  drawCtx.lineCap = "round";
+  drawCtx.lineJoin = "round";
+  drawCtx.lineTo(point.x, point.y);
+  drawCtx.stroke();
+  drawCtx.restore();
+  drawing.last = point;
+}
+
+function endDrawing(e) {
+  if (!drawing.active) return;
+  e.preventDefault();
+  drawing.active = false;
+  if (drawCanvas.hasPointerCapture(e.pointerId)) drawCanvas.releasePointerCapture(e.pointerId);
+  pushDrawState();
+}
+
+drawCanvas.addEventListener("pointerdown", startDrawing);
+drawCanvas.addEventListener("pointermove", moveDrawing);
+drawCanvas.addEventListener("pointerup", endDrawing);
+drawCanvas.addEventListener("pointercancel", endDrawing);
+$("#stroke-width").addEventListener("input", (e) => { $("#stroke-value").value = e.target.value; });
+$("#pen-tool").addEventListener("click", () => { drawing.tool = "pen"; updateDrawButtons(); });
+$("#eraser-tool").addEventListener("click", () => { drawing.tool = "eraser"; updateDrawButtons(); });
+
+function undoDrawing() {
+  if (drawing.undo.length <= 1) return;
+  drawing.redo.push(drawing.undo.pop());
+  drawCtx.putImageData(drawing.undo[drawing.undo.length - 1], 0, 0);
+  updateDrawButtons();
+}
+function redoDrawing() {
+  if (!drawing.redo.length) return;
+  const next = drawing.redo.pop();
+  drawing.undo.push(next);
+  drawCtx.putImageData(next, 0, 0);
+  updateDrawButtons();
+}
+$("#undo-draw").addEventListener("click", undoDrawing);
+$("#redo-draw").addEventListener("click", redoDrawing);
+$("#clear-draw").addEventListener("click", () => { blankDrawing(); pushDrawState(); });
+
+document.querySelectorAll(".draw-template").forEach((button) => {
+  button.addEventListener("click", () => {
+    const scale = drawCanvas.width / drawCanvas.getBoundingClientRect().width;
+    const x = drawCanvas.width * .14;
+    const y = drawCanvas.height * .58;
+    drawCtx.save();
+    drawCtx.fillStyle = "#222";
+    drawCtx.strokeStyle = "#222";
+    drawCtx.lineWidth = 2 * scale;
+    drawCtx.font = `${Math.round(70 * scale)}px "Times New Roman", serif`;
+    if (button.dataset.template === "fraction") {
+      drawCtx.beginPath();
+      drawCtx.moveTo(x, y);
+      drawCtx.lineTo(x + 150 * scale, y);
+      drawCtx.stroke();
+    } else if (button.dataset.template === "root") {
+      drawCtx.fillText("√", x, y + 20 * scale);
+    } else if (button.dataset.template === "integral") {
+      drawCtx.fillText("∫", x, y + 20 * scale);
+    } else {
+      const w = 130 * scale, h = 110 * scale;
+      drawCtx.beginPath();
+      drawCtx.moveTo(x + 18 * scale, y - h); drawCtx.lineTo(x, y - h); drawCtx.lineTo(x, y);
+      drawCtx.moveTo(x + w - 18 * scale, y - h); drawCtx.lineTo(x + w, y - h); drawCtx.lineTo(x + w, y);
+      drawCtx.stroke();
+    }
+    drawCtx.restore();
+    pushDrawState();
+    drawCanvas.focus();
+  });
+});
+
+function closeDrawing() { drawDlg.close(); }
+$("#draw-btn").addEventListener("click", () => {
+  drawDlg.showModal();
+  requestAnimationFrame(() => { sizeDrawingCanvas(); drawCanvas.focus(); });
+});
+$("#draw-close").addEventListener("click", closeDrawing);
+$("#draw-cancel").addEventListener("click", closeDrawing);
+drawDlg.addEventListener("click", (e) => { if (e.target === drawDlg) closeDrawing(); });
+drawDlg.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  if (e.key.toLocaleLowerCase() === "z") {
+    e.preventDefault();
+    e.shiftKey ? redoDrawing() : undoDrawing();
+  } else if (e.key.toLocaleLowerCase() === "y") {
+    e.preventDefault();
+    redoDrawing();
+  }
+});
+
+function drawingHasInk() {
+  const pixels = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data;
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i] < 235 || pixels[i + 1] < 235 || pixels[i + 2] < 235) return true;
+  }
+  return false;
+}
+
+$("#recognize-drawing").addEventListener("click", () => {
+  if (!drawingHasInk()) return toast("Draw a formula first");
+  drawCanvas.toBlob(async (blob) => {
+    if (!blob) return toast("Could not export drawing");
+    closeDrawing();
+    await convert(new File([blob], "kevintex-drawing.png", { type: "image/png" }));
+  }, "image/png");
 });
 
 ["dragover", "dragenter"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("dragover"); }));
@@ -843,11 +1250,17 @@ $("#snip-btn").addEventListener("click", async () => {
   toast("Select a screen region… (Esc to cancel)");
   try {
     if (!(await ensureReady())) throw new Error("Model not ready");
-    const resp = await fetch(`/api/snip?thinking=${state.settings.thinking ? "true" : "false"}`, { method: "POST" });
+    const query = new URLSearchParams({
+      thinking: state.settings.thinking ? "true" : "false",
+      preprocess: state.settings.preprocess,
+      rotation: String(state.settings.rotation),
+      invert: state.settings.invert ? "true" : "false",
+    });
+    const resp = await fetch(`/api/snip?${query}`, { method: "POST" });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || resp.statusText);
 
-    setResult(data.latex, data.elapsed);
+    setResult(data.latex, data.elapsed, data.preprocessing);
     state.history.unshift({ latex: data.latex, thumb: data.thumb, ts: Date.now() });
     saveHistory();
     renderHistory();
@@ -946,12 +1359,12 @@ function showSplash(message) { splash.classList.remove("hidden"); if (message) s
 function hideSplash() { splash.classList.add("hidden"); }
 
 function fmtBackendLabel(s) {
-  return s === "pix2tex" ? "pix2tex" : (s === "lfm-vl" ? "LFM2.5-VL" : "Gemma 4 E2B");
+  return s === "pix2tex" ? "pix2tex" : (s === "lfm-vl" ? "LFM2.5-VL" : (s === "mlx" ? "Gemma 4 E2B · MLX" : "Gemma 4 E2B"));
 }
 
 function applyStatus(s) {
   if (!s) return;
-  const dev = s.device === "cuda" ? "GPU" : "CPU";
+  const dev = s.device === "cuda" ? "GPU" : (s.device === "metal" ? "Apple Silicon" : "CPU");
   $("#device-badge").textContent = `${fmtBackendLabel(s.backend)} · ${dev}`;
   if (s.phase === "ready") { _ready = true; hideSplash(); return; }
   if (s.phase === "error") {
@@ -966,7 +1379,7 @@ function applyStatus(s) {
   splashBar.style.width = (s.progress || 0) + "%";
   splashSub.textContent = s.phase === "downloading"
     ? "One-time setup — this won't repeat on future launches"
-    : (s.backend === "gemma" ? "Gemma 4 E2B-it · " + dev : dev);
+    : ((s.backend === "gemma" || s.backend === "mlx") ? "Gemma 4 E2B-it · " + dev : dev);
   splashRetry.hidden = true;
 }
 

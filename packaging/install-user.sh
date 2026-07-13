@@ -10,7 +10,7 @@ ICONS="$HOME/.local/share/icons/hicolor/scalable/apps"
 
 mkdir -p "$APP" "$BIN" "$APPS" "$ICONS"
 
-cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$APP/"
+cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$APP/"
 rm -rf "$APP/static" && cp -r "$PROJ/static" "$APP/static"
 install -m 755 "$PROJ/packaging/localtex-launcher" "$BIN/kevintex"
 cp "$PROJ/packaging/localtex.svg" "$ICONS/kevintex.svg"

@@ -1,0 +1,67 @@
+name: macOS Apple Silicon release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag to upload to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-macos.txt
+
+      - name: Verify Apple Silicon runner
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+
+      - name: Install macOS dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-macos.txt
+
+      - name: Run tests
+        run: |
+          python -m unittest discover -v
+          python -m py_compile backend_mlx.py packaging/macos/desktop_macos.py
+
+      - name: Build app, ZIP, and DMG
+        env:
+          KEVINTEX_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
+        run: |
+          chmod +x packaging/macos/build.sh
+          KEVINTEX_VERSION="${KEVINTEX_VERSION#v}" packaging/macos/build.sh
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: KevinTex-macOS-arm64
+          path: |
+            dist/macos/*.dmg
+            dist/macos/*.zip
+          if-no-files-found: error
+
+      - name: Upload to existing GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null
+          gh release upload "$RELEASE_TAG" dist/macos/*.dmg dist/macos/*.zip --clobber
