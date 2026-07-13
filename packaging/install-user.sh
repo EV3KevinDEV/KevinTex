@@ -24,6 +24,9 @@ rm -f "$BIN/localtex" "$APPS/localtex.desktop" \
     "$HOME/.local/share/icons/hicolor/scalable/apps/localtex.svg" \
     "$HOME/.local/share/icons/hicolor/scalable/apps/kevintex.svg"
 
+# Drop the superseded mobile QAT cache; the Q4_K_M model uses gemma-4-E2B-it/.
+rm -rf "$APP/models/gemma-4-E2B-it-qat-mobile"
+
 # Reuse the dev venv if present so first run doesn't re-download PyTorch.
 DATA="$HOME/.local/share/localtex"
 mkdir -p "$DATA"

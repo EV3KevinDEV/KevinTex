@@ -200,7 +200,7 @@ class MLXGemmaVisionBackend:
             time.monotonic() - started,
             think,
         )
-        return _extract_markdown(text) if think else _to_markdown_math(text)
+        return _extract_markdown(text)
 
 
 def load():

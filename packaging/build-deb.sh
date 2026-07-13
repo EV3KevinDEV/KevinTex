@@ -2,7 +2,7 @@
 # Build kevintex_<version>_all.deb from the project sources.
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.2.1"
 PROJ="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -47,7 +47,7 @@ Description: Offline formula-image to LaTeX converter (Snip & Get)
  no external screenshot utility required.
  .
  On first launch the app creates a Python environment and downloads
- PyTorch, llama.cpp and the Gemma 4 model weights (one time, ~8 GB).
+ PyTorch, llama.cpp and the Gemma 4 model weights (one time, ~4.1 GB).
  LOCALTEX_BACKEND=lfm-vl or =pix2tex selects alternative backends.
 EOF
 

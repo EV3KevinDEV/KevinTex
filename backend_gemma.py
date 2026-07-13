@@ -1,6 +1,6 @@
 """Gemma 4 E2B-it backend: image -> Markdown+LaTeX via llama.cpp (GGUF).
 
-Uses the `unsloth/gemma-4-E2B-it-GGUF` Q4_K_M quant plus the repo's
+Uses `unsloth/gemma-4-E2B-it-GGUF` Q4_K_M quant plus the repo's
 `mmproj-F16.gguf` vision projector, run through llama-cpp-python with CUDA
 offload. Outputs the same Mathpix/SimpleTex-style Markdown+math as the LFM
 backend (prose as plain text, inline math in `$...$`, display math in `$$...$$`)
@@ -14,6 +14,7 @@ import base64
 import io
 import logging
 import os
+import shutil
 import threading
 import time
 
@@ -45,7 +46,7 @@ def get_status() -> dict:
         return dict(_STATUS)
 
 # Stable local cache so weights aren't re-downloaded each run. Honors an override
-# via the LOCALTEX_MODELS_DIR env var; defaults to <proj>/models/gemma-4-E2B-it.
+# via LOCALTEX_MODELS_DIR.
 _DEFAULT_MODELS_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "models"
 )
@@ -69,6 +70,7 @@ def _env_int(name: str, default: int, minimum: int | None = None) -> int:
 
 MODELS_DIR = os.environ.get("LOCALTEX_MODELS_DIR", _DEFAULT_MODELS_DIR)
 MODEL_DIR = os.path.join(MODELS_DIR, "gemma-4-E2B-it")
+_LEGACY_MODEL_DIRS = ("gemma-4-E2B-it-qat-mobile",)
 
 # Keep enough context for the full 8192-token thinking budget plus image/prompt
 # tokens. These map directly to options supported by installed llama-cpp-python
@@ -122,8 +124,23 @@ def _preload_cuda_libs() -> None:
             pass
 
 
+def _purge_legacy_models() -> None:
+    """Delete superseded Gemma caches so upgrades do not keep two full copies."""
+    parent = os.path.dirname(MODEL_DIR)
+    for name in _LEGACY_MODEL_DIRS:
+        legacy = os.path.join(parent, name)
+        if legacy == MODEL_DIR or not os.path.isdir(legacy):
+            continue
+        try:
+            shutil.rmtree(legacy)
+            log.info("Removed legacy Gemma model cache at %s", legacy)
+        except OSError as exc:
+            log.warning("Could not remove legacy model cache %s: %s", legacy, exc)
+
+
 def _ensure_model_files() -> tuple[str, str]:
     """Download the main GGUF + mmproj if missing; return their local paths."""
+    _purge_legacy_models()
     main_path = os.path.join(MODEL_DIR, MAIN_GGUF)
     mmproj_path = os.path.join(MODEL_DIR, MMPROJ_GGUF)
     if os.path.exists(main_path) and os.path.exists(mmproj_path):
@@ -251,9 +268,9 @@ class GemmaVisionBackend:
                 resp = self.llm.create_chat_completion(
                     messages=messages,
                     max_tokens=max_tokens,
-                    temperature=0.1,
-                    top_p=0.95,
-                    repeat_penalty=1.05,
+                    temperature=0.05 if think else 0.0,
+                    top_p=0.9 if think else 0.85,
+                    repeat_penalty=1.08,
                     stream=False,
                 )
                 elapsed = time.perf_counter() - t0
@@ -271,7 +288,7 @@ class GemmaVisionBackend:
 
         if think:
             return _extract_markdown(content)
-        return _to_markdown_math(content)
+        return _extract_markdown(content)
 
 
 def load():

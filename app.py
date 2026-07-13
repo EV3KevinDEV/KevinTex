@@ -1,8 +1,8 @@
 """KevinTex — offline formula-image → LaTeX/Markdown converter.
 
 A local, free, unlimited SimpleTex-style app. Default backend is Google's
-Gemma 4 E2B-it multimodal model (Q4_K_M GGUF + mmproj vision projector) run
-via llama.cpp entirely on this machine — no cloud calls. Set
+Gemma 4 E2B-it multimodal model (Q4_K_M GGUF + vision
+projector) run via llama.cpp entirely on this machine — no cloud calls. Set
 LOCALTEX_BACKEND=mlx for Apple Silicon MLX acceleration,
 LOCALTEX_BACKEND=lfm-vl for the Liquid AI LFM2.5-VL backend, or
 LOCALTEX_BACKEND=pix2tex for the smaller pix2tex model.

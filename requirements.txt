@@ -3,8 +3,8 @@
 torch
 torchvision
 
-# Default backend: Google Gemma 4 E2B-it (multimodal, Q4_K_M GGUF ~3.1GB +
-# mmproj-F16 ~1GB) run via llama.cpp with CUDA offload. Install the CUDA wheel
+# Default backend: Google Gemma 4 E2B-it (Q4_K_M GGUF ~3.1GB +
+# matching mmproj-F16 ~0.99GB) run via llama.cpp. Install the CUDA wheel
 # explicitly (the PyPI default is CPU-only):
 #   pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121
 # (try cu122 / cu124 indexes if cu121 has no matching wheel).

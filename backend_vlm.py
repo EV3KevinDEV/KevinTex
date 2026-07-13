@@ -14,42 +14,31 @@ log = logging.getLogger("kevintex")
 MODEL_ID = "LiquidAI/LFM2.5-VL-1.6B"
 
 PROMPT = (
-    "You are a math OCR engine. Transcribe the image to Markdown with LaTeX math.\n"
-    "Rules:\n"
-    "- Write normal text as plain Markdown prose.\n"
-    "- Render INLINE math inside $...$ and DISPLAY math inside $$...$$.\n"
-    "- Use standard LaTeX math commands only inside the math delimiters.\n"
-    "- Do NOT output a LaTeX document: no \\documentclass, \\usepackage, "
-    "\\begin{document}, \\end{document}, or any preamble.\n"
-    "- Do NOT wrap the whole output in $$...$$.\n"
-    "- Do NOT bold variables (no \\mathbf, \\boldsymbol, \\textbf). Use plain "
-    "scalar notation; use \\bar{X}_n for a sample mean and Var(X) for variance.\n"
-    "- Output ONLY the Markdown, no explanations, no code fences."
+    "OCR task: transcribe ONLY visible text and formulas from the image.\n"
+    "Reply with exactly ONE line in this format:\n"
+    "LATEX: <markdown transcription>\n"
+    "Rules for the markdown after `LATEX:`:\n"
+    "- Plain text for prose; inline math in $...$; display math in $$...$$.\n"
+    "- Copy only what is visible. No guessing or filling in missing parts.\n"
+    "- No explanations, analysis, notes, headings, apologies, or task descriptions.\n"
+    "- No \\documentclass, \\usepackage, preamble, code fences, or outer $$...$$ wrapper.\n"
+    "- No \\mathbf/\\boldsymbol/\\textbf bolding.\n"
+    "- If blank or unreadable, reply exactly: LATEX:"
 )
 
-# Chain-of-thought prompt: reason first, then emit the Markdown transcription
-# after a `LATEX:` sentinel. Deliberately asks for a long, multi-pass reasoning
-# trace so the model spends more "thinking" tokens before committing to output.
+# Thinking mode keeps reasoning off the final answer via a `LATEX:` sentinel.
 THINKING_PROMPT = (
-    "You are a meticulous math OCR engine. Transcribe the image to Markdown with LaTeX math.\n"
-    "Think long and carefully before answering — take as much reasoning as you need.\n"
-    "STEP 1 — OBSERVE: describe the layout of the page (title, paragraphs, displayed vs inline math, lists, alignment).\n"
-    "STEP 2 — TRANSCRIBE FORMULAS ONE BY ONE: for every formula, read it left-to-right, naming each symbol, "
-    "sub/superscript, fraction, root, limit, sum/integral bound, matrix cell, and alignment column. Note ambiguous "
-    "glyphs (1 vs l, 0 vs O, x vs ×, v vs ν, u vs μ, ρ vs p) and resolve them from context.\n"
-    "STEP 3 — VERIFY: re-read each formula against the image; fix any dropped terms, swapped indices, missing braces, "
-    "or wrong delimiters. Check that every \\left is matched by a \\right and that fractions/roots have both parts.\n"
-    "STEP 4 — ASSEMBLE: lay out the full document in reading order, prose as Markdown and math in delimiters.\n"
-    "STEP 5 — FINAL CHECK: confirm no LaTeX preamble, no \\mathbf bolding, no code fences, and that inline math uses "
-    "$...$ and display math uses $$...$$.\n"
-    "STEP 6 — After all of the above reasoning, emit the final Markdown transcription on a NEW line that starts "
-    "exactly with `LATEX:` followed by ONLY the Markdown.\n"
-    "Rules for the final Markdown:\n"
-    "- Normal text as prose; INLINE math in $...$ and DISPLAY math in $$...$$.\n"
-    "- No \\documentclass, \\usepackage, \\begin{document}, preamble, or code fences.\n"
-    "- Do NOT wrap the whole output in $$...$$.\n"
-    "- Do NOT bold variables (no \\mathbf/\\boldsymbol/\\textbf). Use \\bar{X}_n "
-    "for a sample mean and Var(X) for variance."
+    "You are a strict OCR engine. Transcribe ONLY the text and formulas visible in the image.\n"
+    "Reason silently about symbols and layout, but NEVER print that reasoning.\n"
+    "Your entire visible reply must be exactly one line starting with `LATEX:` "
+    "followed by only the final Markdown transcription.\n"
+    "Rules for the Markdown after `LATEX:`:\n"
+    "- Transcribe only visible content from the image.\n"
+    "- No commentary, analysis, notes, headings, apologies, or task descriptions.\n"
+    "- INLINE math in $...$ and DISPLAY math in $$...$$.\n"
+    "- No \\documentclass, \\usepackage, preamble, code fences, or outer $$...$$ wrapper.\n"
+    "- No \\mathbf/\\boldsymbol/\\textbf bolding.\n"
+    "- If unreadable, output exactly `LATEX:` with nothing after it."
 )
 
 # Default generation settings from the model card.
@@ -76,6 +65,160 @@ _PREAMBLE_CMD = re.compile(
     r"title|author|date|maketitle|tableofcontents|noindent|vspace|hspace|"
     r"medskip|smallskip|bigskip|par|indent|font|usefont|selectfont)\b[^\n]*"
 )
+_META_LINE = re.compile(
+    r"^\s*(?:\#{1,6}\s*|\*\*)?"
+    r"(?:analysis(?:\s+of(?:\s+the)?\s+content)?|note|observation|"
+    r"self[- ]?correction(?:/refinement)?|refinement|"
+    r"text\s+transcription|transcription(?:\s+based)?|warning|important|"
+    r"step\s*\d+|here is|below is|the (?:text|input|user|image)|"
+    r"this (?:seems|appears|is)|if (?:this were|the image|unreadable))"
+    r"(?:\s+of\s+the\s+content)?(?:\*\*)?\s*:?",
+    re.I | re.M,
+)
+_META_PHRASES = (
+    "highly fragmented",
+    "lacks context",
+    "coherent document",
+    "collection of notes",
+    "literal transcription",
+    "self-correction",
+    "structured document",
+    "visible text",
+    "user input",
+    "study notes",
+    "fragmented and lacks",
+    "transcription above",
+    "transcription below",
+    "the input is",
+    "the input seems",
+    "the text provided",
+    "snippet from",
+    "likely related",
+    "possibly related",
+    "mathematical derivation",
+    "does not provide enough context",
+    "difficult to reconstruct",
+    "not enough context",
+    "based on the visible",
+)
+_PREAMBLE_LINE = re.compile(
+    r"^\s*(?:the\s+)?(?:text|image|content)\s+(?:provided|appears|contains|does not|is)\b",
+    re.I,
+)
+_COMMENTARY_LINE = re.compile(
+    r"\b(?:snippet|context|incomplete|unreadable|commentary|describe|summarize|"
+    r"explain|suggests a reference|strongly suggests)\b",
+    re.I,
+)
+
+
+def _has_math_markers(text: str) -> bool:
+    return bool(re.search(r"\$|\\\(|\\\[|\\begin\{", text))
+
+
+def _looks_like_meta_junk(text: str) -> bool:
+    lowered = text.lower()
+    hits = sum(1 for phrase in _META_PHRASES if phrase in lowered)
+    if _META_LINE.search(text):
+        return True
+    if _PREAMBLE_LINE.search(text):
+        return True
+    if re.search(r"\bhere is the transcription\b", lowered):
+        return True
+    if hits >= 1 and not _has_math_markers(text) and len(text) > 80:
+        return True
+    if hits >= 2 and not _has_math_markers(text):
+        return True
+    if hits >= 3:
+        return True
+    return False
+
+
+def _is_meta_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if _META_LINE.match(stripped):
+        return True
+    if _PREAMBLE_LINE.match(stripped):
+        return True
+    lowered = stripped.lower()
+    if any(phrase in lowered for phrase in _META_PHRASES):
+        return True
+    if _COMMENTARY_LINE.search(stripped) and not _has_math_markers(stripped):
+        return True
+    if re.match(r"^\*\*[^*]+\*\*\s*:?\s*$", stripped):
+        return True
+    if re.match(r"^\(.*\)$", stripped) and len(stripped) > 30:
+        return True
+    return False
+
+
+def _dedupe_lines(lines: list[str]) -> list[str]:
+    seen: set[str] = set()
+    kept: list[str] = []
+    for line in lines:
+        key = re.sub(r"[*_`\"']", "", line).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        kept.append(line)
+    return kept
+
+
+def _has_substantive_ocr(text: str) -> bool:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or _is_meta_line(stripped):
+            continue
+        if re.sub(r"[\s$`*_#>.-]", "", stripped):
+            return True
+    return False
+
+
+def _filter_ocr_lines(text: str) -> str:
+    """Keep only lines that look like transcribed content, not model commentary."""
+    quoted = re.findall(r'"([^"]{2,})"|“([^”]{2,})”', text, flags=re.S)
+    if quoted:
+        parts: list[str] = []
+        for q in quoted:
+            block = (q[0] or q[1]).strip()
+            for line in block.splitlines():
+                stripped = line.strip()
+                if stripped and not _is_meta_line(stripped):
+                    parts.append(stripped)
+        if parts:
+            return "\n".join(_dedupe_lines(parts))
+
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or _is_meta_line(stripped):
+            continue
+        stripped = re.sub(r'^["\']|["\']$', "", stripped).strip()
+        stripped = re.sub(r"^\*([^*]+)\*$", r"\1", stripped).strip()
+        if stripped and not _is_meta_line(stripped):
+            kept.append(stripped)
+    return "\n".join(_dedupe_lines(kept)).strip()
+
+
+def _strip_meta_junk(text: str) -> str:
+    """Drop model commentary that leaked into the OCR answer."""
+    if not text.strip():
+        return ""
+
+    if (
+        len(text) >= 4
+        and text.strip().startswith("$$")
+        and text.strip().endswith("$$")
+        and text.count("$$") == 2
+    ):
+        text = text.strip()[2:-2].strip()
+
+    cleaned = _filter_ocr_lines(text)
+    if _has_substantive_ocr(cleaned):
+        return cleaned
+    return ""
 
 
 def _to_markdown_math(text: str) -> str:
@@ -132,14 +275,18 @@ def _to_markdown_math(text: str) -> str:
         text = _TOKEN_SPACES.sub(r"\1", text)
     # 7. Collapse excessive blank lines; trim ends.
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    return text
+    return _strip_meta_junk(text)
 
 
 def _extract_markdown(text: str) -> str:
     """Pull the final Markdown out of a (possibly thinking) model response."""
     idx = text.rfind(LATEX_SENTINEL)
     if idx != -1:
-        text = text[idx + len(LATEX_SENTINEL):]
+        text = text[idx + len(LATEX_SENTINEL):].lstrip()
+    elif _looks_like_meta_junk(text):
+        text = _filter_ocr_lines(text)
+        if not _has_substantive_ocr(text):
+            return ""
     return _to_markdown_math(text)
 
 
@@ -207,7 +354,7 @@ class LFMVisionBackend:
         )[0]
         if think:
             return _extract_markdown(text)
-        return _to_markdown_math(text)
+        return _extract_markdown(text)
 
 
 def load():
