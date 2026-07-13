@@ -1,0 +1,62 @@
+name: Linux release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag to upload to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve release metadata
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+([.][0-9]+){1,3}$ ]]; then
+            echo "Release tag '$RELEASE_TAG' must look like v1.2.3." >&2
+            exit 2
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Run source tests
+        run: |
+          python3 -m pip install pillow fastapi python-multipart
+          python3 -m unittest discover -v
+          python3 -m compileall -q app.py backend_gemma.py backend_mlx.py backend_vlm.py image_preprocessing.py
+
+      - name: Build Debian package
+        run: |
+          chmod +x packaging/build-deb.sh
+          KEVINTEX_VERSION="$VERSION" packaging/build-deb.sh
+          dpkg-deb --info "dist/kevintex_${VERSION}_all.deb"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KevinTex-${{ env.VERSION }}-linux
+          path: dist/kevintex_${{ env.VERSION }}_all.deb
+          if-no-files-found: error
+
+      - name: Upload to existing GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" "dist/kevintex_${VERSION}_all.deb" --clobber

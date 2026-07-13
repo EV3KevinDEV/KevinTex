@@ -23,6 +23,8 @@ vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
 - **Draw a formula** in the responsive handwriting pad, with pen/eraser,
   pressure-aware pointer input, stroke width, undo/redo, clear, and useful
   fraction/root/integral/matrix starters. Drawings go directly to local Gemma.
+- **Voice-to-LaTeX on Apple Silicon** — dictate a formula through the microphone;
+  MLX Gemma turns spoken math into editable Markdown + LaTeX entirely on-device.
 - **Image preparation tools** — rotate before OCR, invert dark screenshots, and
   compare the original with the exact processed image sent to recognition.
 - **Live KaTeX preview** (bundled locally — the app works with no internet at all)
@@ -43,9 +45,9 @@ vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
 
 Prebuilt packages are attached to each [GitHub release](https://github.com/EV3KevinDEV/KevinTex/releases):
 
-- **Ubuntu:** `kevintex_1.2.1_all.deb`
-- **Windows:** portable `KevinTex-1.2.1-windows-x64.zip` containing `KevinTex.exe`
-- **Apple Silicon macOS:** `KevinTex-1.2.1-macOS-arm64.dmg` or `.zip`
+- **Ubuntu:** `kevintex_1.2.3_all.deb`
+- **Windows:** portable `KevinTex-1.2.3-windows-x64.zip` containing `KevinTex.exe`
+- **Apple Silicon macOS:** `KevinTex-1.2.3-macOS-arm64.dmg` or `.zip`
 
 The Windows and macOS applications open in a native window. Model weights are
 not bundled; they download to the current user's application-data directory on
@@ -59,7 +61,7 @@ Two options:
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/kevintex_1.2.1_all.deb
+sudo apt install ./dist/kevintex_1.2.3_all.deb
 ```
 
 **Current user only (no root):**
@@ -120,6 +122,9 @@ python3 -m venv .venv
 The same fields are accepted by `POST /api/convert`; `/api/snip` accepts them as
 query parameters. Conversion responses include the applied preprocessing
 metadata.
+
+`POST /api/voice` accepts a 16 kHz mono WAV file in the `audio` multipart field
+and an optional `thinking` boolean. It is available with `LOCALTEX_BACKEND=mlx`.
 
 ## Performance and resource controls
 
