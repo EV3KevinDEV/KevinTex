@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KevinTex — Snip &amp; Get, offline</title>
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+<script defer src="/static/vendor/katex/katex.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --border: #e3e5e9;
+    --text: #1f2329;
+    --muted: #8a919c;
+    --accent: #3b82f6;
+    --accent-soft: #eaf1fe;
+    --green: #16a34a;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header h1 span { color: var(--accent); }
+  .badge {
+    font-size: 11px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 20px;
+    padding: 3px 10px;
+    margin-left: 10px;
+    font-weight: 600;
+    vertical-align: 2px;
+  }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .icon-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .icon-btn:hover { background: var(--bg); }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, #drop-zone:focus-visible {
+    outline: 3px solid rgba(59, 130, 246, .35);
+    outline-offset: 2px;
+  }
+  .icon-btn.icon-only { padding: 7px; }
+  .icon-btn.icon-only svg { width: 20px; height: 20px; display: block; }
+  #snip-btn {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  #snip-btn:hover { background: #dde9fd; }
+  #snip-btn svg { width: 22px; height: 22px; }
+  #snip-btn.busy svg { animation: spin 1s linear infinite; }
+  #think-btn { color: var(--muted); }
+  #think-btn[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+    font-weight: 600;
+  }
+  .icon-btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .icon-btn.accent:hover { background: #2f6fe0; }
+  .icon-btn.accent:disabled { opacity: .6; cursor: wait; }
+
+  main { max-width: 1080px; margin: 26px auto 60px; padding: 0 20px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 18px;
+    overflow: hidden;
+  }
+
+  /* Split: KaTeX preview (left) + source image (right) */
+  .split-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .split-wrap { display: flex; gap: 0; margin-bottom: 18px; align-items: stretch; }
+  .split-wrap .split-left { flex: 2 2 0; min-width: 0; margin-bottom: 0; }
+  .split-divider { flex: 0 0 1px; width: 1px; background: var(--border); }
+  .split-right { flex: 1 1 0; min-width: 0; margin-bottom: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .split-wrap.collapsed .split-right,
+  .split-wrap.collapsed .split-divider { display: none; }
+  .split-wrap.collapsed .split-left { flex: 1 1 100%; }
+
+  .side-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #fafbfc;
+  }
+  .side-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .pill-btn {
+    border: 1px solid var(--border); background: var(--card); border-radius: 20px;
+    padding: 4px 12px; font-size: 12px; cursor: pointer; color: var(--text); transition: all .15s;
+  }
+  .pill-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .pill-btn:disabled { opacity: .5; cursor: not-allowed; border-color: var(--border); color: var(--muted); }
+  .side-body {
+    flex: 1; min-height: 180px; overflow: auto; padding: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .side-empty { color: var(--muted); font-size: 13px; font-style: italic; text-align: center; }
+  .side-body img { max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; }
+
+  /* Preview */
+  #preview-card { min-height: 220px; display: block; padding: 22px; font-size: 20px; overflow: auto; line-height: 1.5; }
+  #preview-card .placeholder { color: var(--muted); font-size: 15px; font-style: italic; }
+  #preview-card .katex-display { margin: 0.6em 0; text-align: left; }
+  #preview-card .prose { font-size: 16px; color: var(--text); white-space: normal; }
+  #preview-card .math-inline { white-space: normal; }
+  #preview-card .math-display { display: block; }
+
+  /* LaTeX output */
+  .out-wrap { position: relative; }
+  #latex-out {
+    width: 100%;
+    border: none;
+    resize: vertical;
+    min-height: 96px;
+    padding: 16px 18px;
+    font: 14px/1.55 "SF Mono", "Fira Code", Consolas, monospace;
+    color: var(--text);
+    outline: none;
+    background: transparent;
+  }
+  .out-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border);
+    padding: 10px 14px;
+    background: #fafbfc;
+  }
+  .copy-btn {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { background: var(--green); border-color: var(--green); color: #fff; }
+  .elapsed { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+  /* Drop zone */
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 46px 20px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all .2s;
+    background: var(--card);
+    margin-bottom: 18px;
+  }
+  #drop-zone:hover, #drop-zone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+  #drop-zone .cloud { font-size: 40px; line-height: 1; margin-bottom: 10px; }
+  #drop-zone b { color: var(--accent); font-weight: 600; }
+  #drop-zone small { display: block; margin-top: 8px; font-size: 12px; }
+  #drop-zone img { max-width: 100%; max-height: 220px; border-radius: 8px; }
+  #file-input { display: none; }
+
+  /* Spinner */
+  .spinner {
+    width: 26px; height: 26px;
+    border: 3px solid var(--accent-soft);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    margin: 0 auto 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* History */
+  .history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 28px 4px 10px;
+  }
+  h2 { font-size: 14px; color: var(--muted); font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: .6px; }
+  .history-tools { display: flex; align-items: center; gap: 8px; }
+  .history-search {
+    width: min(260px, 40vw);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--text);
+    background: var(--card);
+    font: inherit;
+    font-size: 13px;
+  }
+  .history-search::placeholder { color: var(--muted); }
+  .danger-btn { color: #b42318; }
+  .danger-btn:hover { color: #912018; border-color: #f1a8a2; background: #fff5f4; }
+  .danger-btn:disabled { color: var(--muted); cursor: not-allowed; opacity: .6; }
+  .hist-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 6px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .hist-item:last-child { border-bottom: none; }
+  .hist-item:hover { background: var(--accent-soft); }
+  .hist-load {
+    display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1;
+    padding: 6px; border: 0; background: transparent; cursor: pointer; text-align: left; color: inherit;
+  }
+  .hist-load img { height: 34px; width: 76px; object-fit: contain; border-radius: 4px; background: #fff; border: 1px solid var(--border); }
+  .hist-text { min-width: 0; flex: 1; }
+  .hist-item code {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hist-time { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+  .hist-delete { flex: 0 0 auto; border-color: transparent; color: var(--muted); }
+  .hist-delete:hover { color: #b42318; background: #fff5f4; border-color: #f1a8a2; }
+  .hist-empty { padding: 18px; color: var(--muted); font-size: 13px; text-align: center; }
+  .history-status { font-size: 12px; color: var(--muted); }
+
+  /* Settings modal */
+  dialog {
+    border: none;
+    border-radius: var(--radius);
+    padding: 0;
+    width: 420px;
+    max-width: 92vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  .dlg-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .dlg-head h3 { margin: 0; font-size: 16px; }
+  .dlg-body { padding: 16px 20px 22px; }
+  .dlg-body p { margin: 0 0 18px; color: #4b5563; font-size: 14px; line-height: 1.5; }
+  .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .confirm-danger { background: #b42318; border-color: #b42318; color: #fff; }
+  .confirm-danger:hover { background: #912018; }
+  .set-group { margin-bottom: 18px; }
+  .set-group > label.title { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .radio-row { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .radio-row label { font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: #444; }
+
+  #toast {
+    position: fixed;
+    bottom: 26px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: #222;
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-size: 13px;
+    transition: transform .25s;
+    z-index: 100;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Responsive: stack split panes vertically on narrow screens */
+  @media (max-width: 720px) {
+    .split-wrap { flex-direction: column; }
+    .split-divider { width: 100%; height: 1px; flex: 0 0 1px; }
+    .side-body img { max-height: 40vh; }
+    #preview-card { min-height: 140px; }
+    .history-head { align-items: stretch; flex-direction: column; }
+    .history-tools { flex-wrap: wrap; }
+    .history-search { width: 100%; flex: 1 1 100%; }
+  }
+
+  /* ---- Splash / loading screen ---- */
+  #splash {
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(120% 120% at 50% 0%, #1c2333 0%, #0e1320 60%, #090c14 100%);
+    transition: opacity .35s ease;
+  }
+  #splash.hidden { opacity: 0; pointer-events: none; }
+  .splash-box { width: min(420px, 86vw); text-align: center; color: #d7deea; }
+  .splash-spinner {
+    width: 46px; height: 46px; margin: 0 auto 18px;
+    border: 3px solid rgba(255,255,255,.14);
+    border-top-color: #6ea8ff; border-radius: 50%;
+    animation: splash-spin 1s linear infinite;
+  }
+  @keyframes splash-spin { to { transform: rotate(360deg); } }
+  .splash-title { font-size: 26px; font-weight: 700; letter-spacing: .5px; margin-bottom: 10px; }
+  .splash-title span { color: #6ea8ff; }
+  .splash-message { font-size: 15px; color: #b9c3d6; margin-bottom: 16px; min-height: 1.2em; }
+  .splash-progress {
+    height: 8px; border-radius: 99px; background: rgba(255,255,255,.10);
+    overflow: hidden; margin-bottom: 8px;
+  }
+  .splash-bar {
+    height: 100%; width: 0%; border-radius: 99px;
+    background: linear-gradient(90deg, #4b8bff, #6ea8ff);
+    transition: width .4s ease;
+  }
+  .splash-sub { font-size: 12px; color: #8a94a8; min-height: 1em; }
+  .splash-retry {
+    margin-top: 16px; padding: 8px 18px; border-radius: 99px; cursor: pointer;
+    background: #4b8bff; color: #fff; border: none; font-weight: 600; font-size: 13px;
+  }
+  .splash-retry:hover { background: #6ea8ff; }
+</style>
+</head>
+<body>
+
+<div id="splash" role="status" aria-live="polite">
+  <div class="splash-box">
+    <div class="splash-spinner" aria-hidden="true"></div>
+    <div class="splash-title">Kevin<span>Tex</span></div>
+    <div class="splash-message" id="splash-message">Starting up…</div>
+    <div class="splash-progress"><div class="splash-bar" id="splash-bar"></div></div>
+    <div class="splash-sub" id="splash-sub"></div>
+    <button class="splash-retry" id="splash-retry" type="button" hidden>Retry</button>
+  </div>
+</div>
+
+<header>
+  <h1>Kevin<span>Tex</span> — Snip &amp; Get<span class="badge" id="device-badge">local</span></h1>
+  <div class="header-actions">
+    <button class="icon-btn" id="snip-btn" title="Snip a screen region and convert it (the computer-with-+ button)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="13" rx="2"/>
+        <path d="M8 21h8M12 17v4"/>
+        <path d="M19.5 1.5v5M22 4h-5"/>
+      </svg>
+      <span>Snip</span>
+    </button>
+    <button class="icon-btn" id="think-btn" title="Toggle thinking mode (model reasons step-by-step before answering — slower but cleaner on dense pages)" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z"/></svg>
+      <span>Think</span>
+    </button>
+    <button class="icon-btn icon-only" id="clear-btn" title="Clear current result">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+    </button>
+    <button class="icon-btn icon-only" id="settings-btn" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4.6 15H4.5a2 2 0 1 1 0-4h.2A1.6 1.6 0 0 0 6 8.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 6.2V6a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.2a2 2 0 1 1 0 4z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="split-toolbar">
+    <button class="pill-btn" id="hide-uploads-btn" type="button" aria-pressed="false">Hide uploads</button>
+  </div>
+  <div class="split-wrap" id="split-wrap">
+    <div class="card split-left" id="preview-card">
+      <span class="placeholder">Simple LaTeX starts here…</span>
+    </div>
+    <div class="split-divider" aria-hidden="true"></div>
+    <div class="card split-right" id="source-card">
+      <div class="side-head">
+        <span class="side-title">Source image</span>
+        <button class="pill-btn" id="retry-btn" type="button" disabled
+                title="Recognize this image again using the current Thinking mode">Recognize again</button>
+      </div>
+      <div class="side-body" id="source-body">
+        <div class="side-empty">No image yet. Snip, paste, or drop a formula image.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card out-wrap">
+    <textarea id="latex-out" placeholder="Recognized Markdown + LaTeX appears here — edit and the preview updates live." spellcheck="false"></textarea>
+    <div class="out-toolbar">
+      <button class="copy-btn" data-fmt="default">Copy LaTeX</button>
+      <button class="copy-btn" data-fmt="raw">Raw</button>
+      <button class="copy-btn" data-fmt="inline-dollar">$…$</button>
+      <button class="copy-btn" data-fmt="display-dollar">$$…$$</button>
+      <button class="copy-btn" data-fmt="markdown">Markdown</button>
+      <button class="copy-btn" id="download-btn" type="button" title="Download current output (Ctrl+S)">Download .tex</button>
+      <span class="elapsed" id="elapsed"></span>
+    </div>
+  </div>
+
+  <div id="drop-zone" role="button" tabindex="0" aria-label="Choose an image to recognize, or drop or paste one here">
+    <div id="dz-idle">
+      <div class="cloud">&#9729;&#65038;</div>
+      Drag, paste (Ctrl+V) a formula image, or <b>click here</b> to browse
+      <small>PNG / JPG / BMP / WEBP — runs 100% on this machine, free &amp; unlimited</small>
+    </div>
+    <div id="dz-busy" style="display:none">
+      <div class="spinner"></div>
+      Recognizing…
+    </div>
+  </div>
+  <input type="file" id="file-input" accept="image/*">
+
+  <div class="history-head">
+    <h2 id="history-title">History</h2>
+    <div class="history-tools">
+      <label for="history-search" class="history-status">Search</label>
+      <input class="history-search" id="history-search" type="search" placeholder="Filter recognized text…" autocomplete="off" aria-controls="history">
+      <span class="history-status" id="history-status" aria-live="polite"></span>
+      <button class="icon-btn danger-btn" id="clear-history-btn" type="button">Clear history</button>
+    </div>
+  </div>
+  <div class="card" id="history" aria-labelledby="history-title">
+    <div class="hist-empty">No conversions yet. Results are stored locally in your browser.</div>
+  </div>
+</main>
+
+<dialog id="settings-dlg">
+  <div class="dlg-head">
+    <h3>Settings</h3>
+    <button class="icon-btn" id="dlg-close">✕</button>
+  </div>
+  <div class="dlg-body">
+    <div class="set-group">
+      <label class="title">Copy LaTeX format (for the default "Copy LaTeX" button)</label>
+      <div class="radio-row" id="fmt-radios">
+        <label><input type="radio" name="fmt" value="raw"> No special additions</label>
+        <label><input type="radio" name="fmt" value="inline-dollar"> $ … $</label>
+        <label><input type="radio" name="fmt" value="display-dollar" checked> $$ … $$</label>
+        <label><input type="radio" name="fmt" value="bracket"> \[ … \]</label>
+        <label><input type="radio" name="fmt" value="paren"> \( … \)</label>
+        <label><input type="radio" name="fmt" value="equation"> \begin…\end</label>
+      </div>
+    </div>
+    <div class="set-group">
+      <label class="title">Automatic copy after recognition</label>
+      <div class="radio-row" id="autocopy-radios">
+        <label><input type="radio" name="autocopy" value="off"> No auto-copy</label>
+        <label><input type="radio" name="autocopy" value="on" checked> Auto-copy LaTeX</label>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="clear-history-dlg" aria-labelledby="clear-history-title">
+  <div class="dlg-head">
+    <h3 id="clear-history-title">Clear conversion history?</h3>
+    <button class="icon-btn" id="clear-history-close" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="dlg-body">
+    <p>This permanently removes all locally stored conversion text and thumbnails. Your current result and settings will not be changed.</p>
+    <div class="dlg-actions">
+      <button class="icon-btn" id="clear-history-cancel" type="button">Cancel</button>
+      <button class="icon-btn confirm-danger" id="clear-history-confirm" type="button">Clear all history</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+function loadLocalJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key));
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const state = {
+  latex: "",
+  sourceImage: null,
+  recognizing: false,
+  settings: loadLocalJson("localtex-settings", { fmt: "display-dollar", autocopy: "on", thinking: false }),
+  history: loadLocalJson("localtex-history", []),
+  historyQuery: "",
+};
+if (!Array.isArray(state.history)) state.history = [];
+
+function saveSettings() { localStorage.setItem("localtex-settings", JSON.stringify(state.settings)); }
+function saveHistory()  { localStorage.setItem("localtex-history", JSON.stringify(state.history.slice(0, 30))); }
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+function wrap(latex, fmt) {
+  switch (fmt) {
+    case "inline-dollar":  return `$${latex}$`;
+    case "display-dollar": return `$$\n${latex}\n$$`;
+    case "bracket":        return `\\[\n${latex}\n\\]`;
+    case "paren":          return `\\(${latex}\\)`;
+    case "equation":       return `\\begin{equation}\n${latex}\n\\end{equation}`;
+    case "markdown":       return `$$\n${latex}\n$$`;
+    default:               return latex;
+  }
+}
+
+function stripDollars(tex) {
+  // Strip a single $$ or $ wrapper pair if it cleanly flanks the string.
+  if (tex.startsWith("$$") && tex.endsWith("$$") && tex.length >= 4) {
+    const inner = tex.slice(2, -2).trim();
+    if (inner) return inner;
+  }
+  if (tex.startsWith("$") && tex.endsWith("$") && tex.length >= 2) {
+    const inner = tex.slice(1, -1).trim();
+    // Only treat as a wrapper pair if no other $ hides inside (exactly two $).
+    if (inner && (inner.match(/\$/g) || []).length === 0) return inner;
+  }
+  return tex;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Split Mathpix/SimpleTex-style Markdown into prose / inline $...$ / display
+// $$...$$ / \[...\] / \(...\) segments and render each appropriately.
+const MATH_RE = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\(.*?\\\)|\$[^$\n]+?\$/g;
+
+function renderMathSegment(el, inner, display) {
+  try {
+    katex.render(inner, el, { displayMode: display, throwOnError: true });
+    return true;
+  } catch {
+    el.textContent = display ? `$$${inner}$$` : `$${inner}$`;
+    el.style.color = "var(--muted)";
+    return false;
+  }
+}
+
+function renderPreview() {
+  const el = $("#preview-card");
+  const raw = $("#latex-out").value;
+  if (!raw.trim()) {
+    el.innerHTML = '<span class="placeholder">Simple LaTeX starts here…</span>';
+    return;
+  }
+  el.innerHTML = "";
+  el.style.color = "";
+
+  let last = 0;
+  let m;
+  MATH_RE.lastIndex = 0;
+  let anyMath = false;
+  while ((m = MATH_RE.exec(raw)) !== null) {
+    // Prose before this math segment.
+    if (m.index > last) {
+      const prose = raw.slice(last, m.index);
+      if (prose.trim()) {
+        const p = document.createElement("span");
+        p.className = "prose";
+        p.innerHTML = escapeHtml(prose).replace(/\n/g, "<br>");
+        el.appendChild(p);
+      }
+    }
+    const tok = m[0];
+    let inner, display;
+    if (tok.startsWith("$$")) { inner = tok.slice(2, -2).trim(); display = true; }
+    else if (tok.startsWith("\\[")) { inner = tok.slice(2, -2).trim(); display = true; }
+    else if (tok.startsWith("\\(")) { inner = tok.slice(2, -2).trim(); display = false; }
+    else { inner = tok.slice(1, -1).trim(); display = false; }
+    const span = document.createElement("span");
+    span.className = display ? "math-display" : "math-inline";
+    renderMathSegment(span, inner, display);
+    el.appendChild(span);
+    anyMath = true;
+    last = m.index + tok.length;
+  }
+  // Trailing prose (or the entire string when there was no math).
+  const tail = raw.slice(last);
+  if (tail.trim()) {
+    const p = document.createElement("span");
+    p.className = "prose";
+    p.innerHTML = escapeHtml(tail).replace(/\n/g, "<br>");
+    el.appendChild(p);
+  } else if (!anyMath && !el.hasChildNodes()) {
+    el.innerHTML = '<span class="placeholder">Simple LaTeX starts here…</span>';
+  }
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy"); ta.remove(); return ok;
+  }
+}
+
+function renderHistory() {
+  const box = $("#history");
+  const clearButton = $("#clear-history-btn");
+  clearButton.disabled = state.history.length === 0;
+  if (!state.history.length) {
+    $("#history-status").textContent = "";
+    box.innerHTML = '<div class="hist-empty">No conversions yet. Results are stored locally in your browser.</div>';
+    return;
+  }
+  const query = state.historyQuery.trim().toLocaleLowerCase();
+  const visible = state.history
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !query || String(item.latex || "").toLocaleLowerCase().includes(query));
+  $("#history-status").textContent = query ? `${visible.length} of ${state.history.length}` : `${state.history.length}`;
+  box.innerHTML = "";
+  if (!visible.length) {
+    box.innerHTML = '<div class="hist-empty">No history entries match that search.</div>';
+    return;
+  }
+  for (const { item, index } of visible) {
+    const row = document.createElement("div");
+    row.className = "hist-item";
+    const load = document.createElement("button");
+    load.className = "hist-load";
+    load.type = "button";
+    load.setAttribute("aria-label", "Load this conversion");
+    const img = document.createElement("img");
+    img.src = item.thumb;
+    img.alt = "";
+    const text = document.createElement("span");
+    text.className = "hist-text";
+    const code = document.createElement("code");
+    code.textContent = item.latex;
+    const time = document.createElement("time");
+    time.className = "hist-time";
+    const date = new Date(item.ts);
+    if (Number.isFinite(date.getTime())) {
+      time.dateTime = date.toISOString();
+      time.textContent = date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    }
+    text.append(code, time);
+    load.append(img, text);
+    load.addEventListener("click", () => {
+      setResult(item.latex, null);
+      setSourceImage(item.thumb);
+      toast("Loaded from history");
+    });
+    const remove = document.createElement("button");
+    remove.className = "icon-btn icon-only hist-delete";
+    remove.type = "button";
+    remove.title = "Delete this history entry";
+    remove.setAttribute("aria-label", "Delete this history entry");
+    remove.textContent = "✕";
+    remove.addEventListener("click", () => {
+      state.history.splice(index, 1);
+      saveHistory();
+      renderHistory();
+      toast("History entry deleted");
+    });
+    row.append(load, remove);
+    box.appendChild(row);
+  }
+}
+
+function downloadLatex() {
+  const latex = $("#latex-out").value.trim();
+  if (!latex) return toast("Nothing to download yet");
+  const blob = new Blob([latex + "\n"], { type: "application/x-tex;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  link.href = url;
+  link.download = `kevintex-${stamp}.tex`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  toast("Downloaded .tex file");
+}
+
+function setResult(latex, elapsed) {
+  state.latex = latex;
+  $("#latex-out").value = latex;
+  $("#elapsed").textContent = elapsed != null ? `${elapsed}s on-device` : "";
+  renderPreview();
+}
+
+function setSourceImage(thumb) {
+  state.sourceImage = thumb || null;
+  $("#retry-btn").disabled = !state.sourceImage || state.recognizing;
+  const body = $("#source-body");
+  if (!state.sourceImage) {
+    body.innerHTML = '<div class="side-empty">No image yet. Snip, paste, or drop a formula image.</div>';
+    return;
+  }
+  body.innerHTML = `<img src="${state.sourceImage}" alt="source formula">`;
+}
+
+function setRecognizing(busy) {
+  state.recognizing = busy;
+  $("#dz-idle").style.display = busy ? "none" : "block";
+  $("#dz-busy").style.display = busy ? "block" : "none";
+  const retry = $("#retry-btn");
+  retry.disabled = busy || !state.sourceImage;
+  retry.textContent = busy ? "Recognizing…" : "Recognize again";
+}
+
+async function convert(file) {
+  if (state.recognizing) return;
+  setRecognizing(true);
+
+  try {
+    const thumb = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Could not read that image"));
+      reader.readAsDataURL(file);
+    });
+    if (!(await ensureReady())) throw new Error("Model not ready");
+    const fd = new FormData();
+    fd.append("image", file, file.name || "clipboard.png");
+    fd.append("thinking", state.settings.thinking ? "true" : "false");
+    const resp = await fetch("/api/convert", { method: "POST", body: fd });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+
+    setResult(data.latex, data.elapsed);
+    state.history.unshift({ latex: data.latex, thumb, ts: Date.now() });
+    saveHistory();
+    renderHistory();
+    setSourceImage(thumb);
+
+    if (state.settings.autocopy === "on") {
+      const ok = await copyText(wrap(data.latex, state.settings.fmt));
+      toast(ok ? "Recognized — LaTeX copied to clipboard" : "Recognized");
+    } else {
+      toast("Recognized");
+    }
+  } catch (e) {
+    toast("Error: " + e.message);
+  } finally {
+    setRecognizing(false);
+  }
+}
+
+// --- wiring ---
+const dz = $("#drop-zone");
+dz.addEventListener("click", () => $("#file-input").click());
+dz.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    $("#file-input").click();
+  }
+});
+$("#file-input").addEventListener("change", (e) => {
+  if (e.target.files[0]) convert(e.target.files[0]);
+  e.target.value = "";
+});
+
+$("#retry-btn").addEventListener("click", async () => {
+  if (!state.sourceImage || state.recognizing) return;
+  try {
+    const blob = await (await fetch(state.sourceImage)).blob();
+    const ext = blob.type.split("/")[1] || "png";
+    await convert(new File([blob], `kevintex-retry.${ext}`, { type: blob.type || "image/png" }));
+  } catch (e) {
+    toast("Could not retry this image: " + e.message);
+  }
+});
+
+const thinkBtn = $("#think-btn");
+function syncThinkBtn() {
+  const on = !!state.settings.thinking;
+  thinkBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  $("#retry-btn").title = `Recognize this image again with Thinking mode ${on ? "on" : "off"}`;
+}
+syncThinkBtn();
+thinkBtn.addEventListener("click", () => {
+  state.settings.thinking = !state.settings.thinking;
+  saveSettings();
+  syncThinkBtn();
+  toast(state.settings.thinking ? "Thinking mode ON — slower, cleaner on dense pages" : "Thinking mode OFF");
+});
+
+["dragover", "dragenter"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("dragover"); }));
+["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("dragover"); }));
+dz.addEventListener("drop", (e) => {
+  const f = [...e.dataTransfer.files].find((f) => f.type.startsWith("image/"));
+  if (f) convert(f);
+});
+
+document.addEventListener("paste", (e) => {
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+  if (item) { e.preventDefault(); convert(item.getAsFile()); }
+});
+
+$("#latex-out").addEventListener("input", renderPreview);
+$("#download-btn").addEventListener("click", downloadLatex);
+
+document.querySelectorAll(".copy-btn[data-fmt]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const latex = $("#latex-out").value.trim();
+    if (!latex) return toast("Nothing to copy yet");
+    // Output is Markdown+math. "Copy LaTeX"/"Raw"/"Markdown" copy it as-is;
+    // the $…$ / $$…$$ buttons wrap single-formula content only.
+    const isDoc = /[$\n]/.test(latex);
+    const fmt = btn.dataset.fmt;
+    let text;
+    if (fmt === "default" || fmt === "raw" || fmt === "markdown" || isDoc) {
+      text = latex;
+    } else {
+      text = wrap(latex, fmt);
+    }
+    if (await copyText(text)) {
+      btn.classList.add("copied");
+      const orig = btn.textContent;
+      btn.textContent = "Copied ✓";
+      setTimeout(() => { btn.classList.remove("copied"); btn.textContent = orig; }, 1200);
+    }
+  });
+});
+
+$("#snip-btn").addEventListener("click", async () => {
+  const btn = $("#snip-btn");
+  btn.disabled = true;
+  btn.classList.add("busy");
+  toast("Select a screen region… (Esc to cancel)");
+  try {
+    if (!(await ensureReady())) throw new Error("Model not ready");
+    const resp = await fetch(`/api/snip?thinking=${state.settings.thinking ? "true" : "false"}`, { method: "POST" });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+
+    setResult(data.latex, data.elapsed);
+    state.history.unshift({ latex: data.latex, thumb: data.thumb, ts: Date.now() });
+    saveHistory();
+    renderHistory();
+    setSourceImage(data.thumb);
+
+    if (state.settings.autocopy === "on") {
+      const ok = await copyText(wrap(data.latex, state.settings.fmt));
+      toast(ok ? "Recognized — LaTeX copied to clipboard" : "Recognized");
+    } else {
+      toast("Recognized");
+    }
+  } catch (e) {
+    toast("Snip: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("busy");
+  }
+});
+
+$("#clear-btn").addEventListener("click", () => {
+  setResult("", null);
+  setSourceImage(null);
+  $("#dz-idle").style.display = "block";
+  $("#dz-busy").style.display = "none";
+});
+
+$("#history-search").addEventListener("input", (e) => {
+  state.historyQuery = e.target.value;
+  renderHistory();
+});
+
+const clearHistoryDlg = $("#clear-history-dlg");
+$("#clear-history-btn").addEventListener("click", () => clearHistoryDlg.showModal());
+$("#clear-history-close").addEventListener("click", () => clearHistoryDlg.close());
+$("#clear-history-cancel").addEventListener("click", () => clearHistoryDlg.close());
+$("#clear-history-confirm").addEventListener("click", () => {
+  state.history = [];
+  state.historyQuery = "";
+  $("#history-search").value = "";
+  saveHistory();
+  renderHistory();
+  clearHistoryDlg.close();
+  toast("Conversion history cleared");
+});
+clearHistoryDlg.addEventListener("click", (e) => {
+  if (e.target === clearHistoryDlg) clearHistoryDlg.close();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  if (e.key.toLocaleLowerCase() === "k") {
+    e.preventDefault();
+    $("#history-search").focus();
+    $("#history-search").select();
+  } else if (e.key.toLocaleLowerCase() === "s") {
+    e.preventDefault();
+    downloadLatex();
+  }
+});
+
+// Hide uploads toggle: collapse/show the right source-image pane
+$("#hide-uploads-btn").addEventListener("click", () => {
+  const w = $("#split-wrap");
+  const btn = $("#hide-uploads-btn");
+  w.classList.toggle("collapsed");
+  const collapsed = w.classList.contains("collapsed");
+  btn.textContent = collapsed ? "Show uploads" : "Hide uploads";
+  btn.setAttribute("aria-pressed", String(collapsed));
+});
+
+// Settings dialog
+const dlg = $("#settings-dlg");
+$("#settings-btn").addEventListener("click", () => {
+  dlg.querySelector(`input[name=fmt][value="${state.settings.fmt}"]`).checked = true;
+  dlg.querySelector(`input[name=autocopy][value="${state.settings.autocopy}"]`).checked = true;
+  dlg.showModal();
+});
+$("#dlg-close").addEventListener("click", () => dlg.close());
+dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+dlg.addEventListener("change", (e) => {
+  if (e.target.name === "fmt") state.settings.fmt = e.target.value;
+  if (e.target.name === "autocopy") state.settings.autocopy = e.target.value;
+  saveSettings();
+});
+
+// --- Splash / startup loading screen ---
+const splash = $("#splash");
+const splashMsg = $("#splash-message");
+const splashBar = $("#splash-bar");
+const splashSub = $("#splash-sub");
+const splashRetry = $("#splash-retry");
+let _ready = false;
+let _statusTimer = null;
+
+function showSplash(message) { splash.classList.remove("hidden"); if (message) splashMsg.textContent = message; }
+function hideSplash() { splash.classList.add("hidden"); }
+
+function fmtBackendLabel(s) {
+  return s === "pix2tex" ? "pix2tex" : (s === "lfm-vl" ? "LFM2.5-VL" : "Gemma 4 E2B");
+}
+
+function applyStatus(s) {
+  if (!s) return;
+  const dev = s.device === "cuda" ? "GPU" : "CPU";
+  $("#device-badge").textContent = `${fmtBackendLabel(s.backend)} · ${dev}`;
+  if (s.phase === "ready") { _ready = true; hideSplash(); return; }
+  if (s.phase === "error") {
+    splashMsg.textContent = "Model failed to load";
+    splashSub.textContent = s.error || "";
+    splashBar.style.width = "0%";
+    splashRetry.hidden = false;
+    return;
+  }
+  showSplash();
+  splashMsg.textContent = s.message || (s.phase === "downloading" ? "Downloading model…" : "Loading model…");
+  splashBar.style.width = (s.progress || 0) + "%";
+  splashSub.textContent = s.phase === "downloading"
+    ? "One-time setup — this won't repeat on future launches"
+    : (s.backend === "gemma" ? "Gemma 4 E2B-it · " + dev : dev);
+  splashRetry.hidden = true;
+}
+
+async function pollStatus() {
+  try {
+    const r = await fetch("/api/status");
+    if (r.ok) { const s = await r.json(); applyStatus(s); if (s.phase === "ready") return true; }
+  } catch {}
+  return false;
+}
+
+function startStatusPolling() {
+  if (_statusTimer) return;
+  _statusTimer = setInterval(async () => {
+    if (await pollStatus()) { clearInterval(_statusTimer); _statusTimer = null; }
+  }, 1000);
+}
+
+// Block a convert/snip call until the model is ready (re-shows the splash).
+async function ensureReady() {
+  if (_ready) return true;
+  showSplash("Warming up…");
+  while (!await pollStatus()) { await new Promise((r) => setTimeout(r, 1000)); }
+  return _ready;
+}
+
+splashRetry.addEventListener("click", () => {
+  splashRetry.hidden = true;
+  splashMsg.textContent = "Retrying…";
+  fetch("/api/reload", { method: "POST" }).catch(() => {}).finally(startStatusPolling);
+});
+
+(async () => {
+  await pollStatus();
+  if (!_ready) startStatusPolling();
+})();
+
+renderHistory();
+</script>
+</body>
+</html>

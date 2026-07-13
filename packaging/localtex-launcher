@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# KevinTex desktop launcher: bootstraps the Python environment on first run,
+# starts the local server, and opens the app in a native window.
+set -u
+
+APP_DIR="${KEVINTEX_APP_DIR:-${LOCALTEX_APP_DIR:-}}"
+if [ -z "$APP_DIR" ]; then
+    for d in /opt/kevintex "$HOME/.local/opt/kevintex" /opt/localtex "$HOME/.local/opt/localtex"; do
+        [ -f "$d/app.py" ] && APP_DIR="$d" && break
+    done
+fi
+if [ -z "$APP_DIR" ]; then
+    echo "KevinTex app files not found (/opt/kevintex or ~/.local/opt/kevintex)" >&2
+    exit 1
+fi
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/localtex"
+VENV="$DATA_DIR/venv"
+PORT=8321
+URL="http://127.0.0.1:$PORT"
+LOG="$DATA_DIR/server.log"
+
+mkdir -p "$DATA_DIR"
+
+notify() {
+    command -v notify-send >/dev/null && notify-send -i kevintex "KevinTex" "$1" || true
+}
+
+server_up() {
+    curl -sf --max-time 2 "$URL/api/health" >/dev/null 2>&1
+}
+
+# ---------- first-run bootstrap ----------
+if [ ! -x "$VENV/bin/uvicorn" ]; then
+    notify "First-run setup: installing the Python environment (PyTorch + llama.cpp). The AI model weights download inside the app on first launch."
+    BOOTSTRAP="set -e
+python3 -m venv '$VENV'
+'$VENV/bin/pip' install --upgrade pip
+'$VENV/bin/pip' install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Default backend is Gemma 4 E2B-it via llama.cpp. Install the CUDA wheel
+# explicitly (PyPI default is CPU-only); fall back to cu122/cu124 if needed.
+'$VENV/bin/pip' install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 || \
+'$VENV/bin/pip' install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu122 || \
+'$VENV/bin/pip' install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+'$VENV/bin/pip' install -r '$APP_DIR/requirements.txt'
+echo; echo 'Setup complete. You can close this window.'"
+    if command -v zenity >/dev/null; then
+        bash -c "$BOOTSTRAP" > "$DATA_DIR/setup.log" 2>&1 &
+        SETUP_PID=$!
+        ( while kill -0 $SETUP_PID 2>/dev/null; do echo "# Installing… (see $DATA_DIR/setup.log)"; sleep 2; done; echo 100 ) | \
+            zenity --progress --pulsate --no-cancel --auto-close \
+                   --title="KevinTex first-run setup" \
+                   --text="Downloading PyTorch + llama.cpp + model environment (one time)…" 2>/dev/null
+        wait $SETUP_PID || { zenity --error --text="Setup failed. See $DATA_DIR/setup.log" 2>/dev/null; exit 1; }
+    else
+        bash -c "$BOOTSTRAP" 2>&1 | tee "$DATA_DIR/setup.log" || exit 1
+    fi
+    notify "Setup complete."
+fi
+
+# ---------- start server ----------
+STARTED_BY_US=0
+if ! server_up; then
+    (cd "$APP_DIR" && nohup "$VENV/bin/uvicorn" app:app --host 127.0.0.1 --port $PORT \
+        >> "$LOG" 2>&1 & echo $! > "$DATA_DIR/server.pid")
+    STARTED_BY_US=1
+    # The server answers /api/health within a couple of seconds (model loads in
+    # the background); the in-app splash then shows download/load progress.
+    for _ in $(seq 1 90); do server_up && break; sleep 1; done
+    if ! server_up; then
+        notify "Server failed to start. See $LOG"
+        exit 1
+    fi
+fi
+
+# ---------- open window ----------
+BROWSER=""
+for c in google-chrome google-chrome-stable chromium chromium-browser brave-browser microsoft-edge; do
+    command -v "$c" >/dev/null && BROWSER="$c" && break
+done
+
+if [ -n "$BROWSER" ]; then
+    # Dedicated profile => own window + process, so we can shut the server
+    # down when the window closes.
+    "$BROWSER" --app="$URL" --class=KevinTex \
+        --user-data-dir="$DATA_DIR/window-profile" \
+        --no-first-run --no-default-browser-check >/dev/null 2>&1
+    if [ "$STARTED_BY_US" = 1 ] && [ -f "$DATA_DIR/server.pid" ]; then
+        kill "$(cat "$DATA_DIR/server.pid")" 2>/dev/null
+        rm -f "$DATA_DIR/server.pid"
+    fi
+else
+    xdg-open "$URL" >/dev/null 2>&1 || true
+    # No app-mode browser: leave the server running for the browser tab.
+fi
