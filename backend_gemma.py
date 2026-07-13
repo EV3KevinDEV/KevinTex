@@ -83,6 +83,7 @@ N_THREADS = _env_int("LOCALTEX_N_THREADS", 0, 0) or None
 # Reuse the exact prompt text + cleanup from the LFM backend so output style is
 # identical across backends.
 from backend_vlm import (  # noqa: E402
+    AUDIO_PROMPT,
     PROMPT,
     THINKING_PROMPT,
     LATEX_SENTINEL,
@@ -288,6 +289,44 @@ class GemmaVisionBackend:
 
         if think:
             return _extract_markdown(content)
+        return _extract_markdown(content)
+
+    def recognize_audio(self, audio_path: str, thinking: bool | None = None) -> str:
+        """Convert spoken mathematics using llama.cpp's Gemma 4 audio tower."""
+        think = self.default_thinking if thinking is None else bool(thinking)
+        max_tokens = MAX_TOKENS_THINKING if think else MAX_TOKENS_FAST
+        with open(audio_path, "rb") as handle:
+            audio_url = (
+                "data:audio/wav;base64," + base64.b64encode(handle.read()).decode("ascii")
+            )
+        # llama-cpp-python's MTMD chat handler uses the image_url transport for
+        # generic media. libmtmd identifies the WAV bytes and emits an audio chunk.
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": audio_url}},
+                    {"type": "text", "text": AUDIO_PROMPT},
+                ],
+            }
+        ]
+        try:
+            with self._inference_lock:
+                started = time.perf_counter()
+                response = self.llm.create_chat_completion(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=0.05 if think else 0.0,
+                    top_p=0.9 if think else 0.85,
+                    repeat_penalty=1.08,
+                    stream=False,
+                )
+                elapsed = time.perf_counter() - started
+        finally:
+            messages.clear()
+            audio_url = ""
+        content = response["choices"][0]["message"].get("content") or ""
+        log.info("Gemma transcribed audio in %.2fs (thinking=%s)", elapsed, think)
         return _extract_markdown(content)
 
 

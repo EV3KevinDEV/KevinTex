@@ -23,8 +23,9 @@ vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
 - **Draw a formula** in the responsive handwriting pad, with pen/eraser,
   pressure-aware pointer input, stroke width, undo/redo, clear, and useful
   fraction/root/integral/matrix starters. Drawings go directly to local Gemma.
-- **Voice-to-LaTeX on Apple Silicon** — dictate a formula through the microphone;
-  MLX Gemma turns spoken math into editable Markdown + LaTeX entirely on-device.
+- **Voice-to-LaTeX** — dictate a formula through the microphone; Gemma turns
+  spoken math into editable Markdown + LaTeX entirely on-device through MLX on
+  Apple Silicon and llama.cpp on Windows/Linux.
 - **Image preparation tools** — rotate before OCR, invert dark screenshots, and
   compare the original with the exact processed image sent to recognition.
 - **Live KaTeX preview** (bundled locally — the app works with no internet at all)
@@ -124,7 +125,8 @@ query parameters. Conversion responses include the applied preprocessing
 metadata.
 
 `POST /api/voice` accepts a 16 kHz mono WAV file in the `audio` multipart field
-and an optional `thinking` boolean. It is available with `LOCALTEX_BACKEND=mlx`.
+and an optional `thinking` boolean. It is available with the default `gemma`
+backend and with `LOCALTEX_BACKEND=mlx`.
 
 ## Performance and resource controls
 

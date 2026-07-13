@@ -348,9 +348,9 @@ async def voice(
     thinking: bool | None = Form(None),
 ):
     """Convert a short WAV recording of spoken mathematics to LaTeX."""
-    if BACKEND != "mlx":
+    if BACKEND not in ("gemma", "mlx"):
         return JSONResponse(
-            {"error": "Voice-to-LaTeX is available in the Apple Silicon MLX build."},
+            {"error": "Voice-to-LaTeX requires the Gemma or MLX backend."},
             status_code=501,
         )
     try:
@@ -474,7 +474,7 @@ def health():
         "backend": BACKEND,
         "model_loaded": _model is not None,
         "thinking_default": THINKING_DEFAULT,
-        "audio_supported": BACKEND == "mlx",
+        "audio_supported": BACKEND in ("gemma", "mlx"),
     }
 
 
@@ -493,7 +493,7 @@ def status():
     s["backend"] = BACKEND
     s["device"] = _device_label()
     s["model_loaded"] = model_ready()
-    s["audio_supported"] = BACKEND == "mlx"
+    s["audio_supported"] = BACKEND in ("gemma", "mlx")
     return s
 
 
