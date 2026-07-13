@@ -14,6 +14,7 @@ from starlette.datastructures import UploadFile
 import app
 import backend_gemma
 import backend_mlx
+from pathlib import Path
 
 
 class ModelInitializationTests(unittest.TestCase):
@@ -58,6 +59,21 @@ class ModelInitializationTests(unittest.TestCase):
         finally:
             app._model = previous_model
             app.BACKEND = previous_backend
+
+    def test_optiq_model_skips_audio_repair(self):
+        with patch.object(
+            backend_mlx,
+            "MODEL_ID",
+            "mlx-community/gemma-4-e2b-it-OptiQ-4bit",
+        ):
+            self.assertFalse(backend_mlx._repair_audio_tower_weights(Path("/tmp/unused")))
+
+    def test_bfloat16_loader_error_is_actionable(self):
+        exc = backend_mlx._friendly_load_error(
+            RuntimeError("data type 'bfloat16' not understood")
+        )
+        self.assertIn("OptiQ", str(exc))
+        self.assertIn("bfloat16", str(exc).lower())
 
 
 class InferenceConcurrencyTests(unittest.TestCase):

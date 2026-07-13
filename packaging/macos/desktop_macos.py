@@ -67,6 +67,13 @@ def _smoke_test() -> int:
         raise FileNotFoundError(f"Bundled frontend is missing: {index}")
     if app.BACKEND != "mlx":
         raise RuntimeError("macOS MLX backend was not selected")
+    from mlx_vlm import load as mlx_load  # noqa: F401
+    from mlx_vlm.prompt_utils import apply_chat_template  # noqa: F401
+
+    import backend_mlx
+
+    if backend_mlx._repair_audio_tower_weights(Path("/tmp/unused")):
+        raise RuntimeError("OptiQ MLX builds must not rewrite cached weights")
     return 0
 
 

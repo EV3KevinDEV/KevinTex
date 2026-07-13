@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from backend_vlm import PROMPT, THINKING_PROMPT, _extract_markdown, _to_markdown_math
+from backend_vlm import PROMPT, THINKING_PROMPT, _extract_markdown
 
 log = logging.getLogger("kevintex")
 
@@ -86,10 +86,15 @@ def _purge_legacy_models() -> None:
 
 def _repair_audio_tower_weights(model_dir: Path) -> bool:
     """Fix Gemma 4 audio conv weights saved in PyTorch channel-first layout."""
+    # OptiQ MLX releases already ship channel-last audio conv weights. Rewriting
+    # their bf16 safetensors through NumPy fails with "bfloat16 not understood".
+    if "OptiQ-4bit" in MODEL_ID:
+        return False
+
     try:
-        import numpy as np
+        import torch
         from safetensors import safe_open
-        from safetensors.numpy import save_file
+        from safetensors.torch import save_file
     except ImportError:
         return False
 
@@ -98,23 +103,27 @@ def _repair_audio_tower_weights(model_dir: Path) -> bool:
     repaired_any = False
 
     for weights_path in sorted(model_dir.rglob("*.safetensors")):
-        updates: dict[str, object] = {}
-        tensors: dict[str, object] = {}
-        with safe_open(weights_path, framework="numpy") as handle:
-            for key in handle.keys():
-                tensors[key] = handle.get_tensor(key)
-                if marker not in key or not key.endswith(suffix):
-                    continue
-                arr = np.asarray(tensors[key])
-                if arr.ndim != 4:
-                    continue
-                tail = tuple(arr.shape[1:])
-                if tail == (3, 3, 1):
-                    continue
-                if tail == (1, 3, 3):
-                    updates[key] = arr.transpose(0, 2, 3, 1)
-                elif tail == (3, 1, 3):
-                    updates[key] = arr.transpose(0, 3, 1, 2)
+        updates: dict[str, torch.Tensor] = {}
+        tensors: dict[str, torch.Tensor] = {}
+        try:
+            with safe_open(weights_path, framework="pt", device="cpu") as handle:
+                for key in handle.keys():
+                    tensor = handle.get_tensor(key)
+                    tensors[key] = tensor
+                    if marker not in key or not key.endswith(suffix):
+                        continue
+                    if tensor.ndim != 4:
+                        continue
+                    tail = tuple(tensor.shape[1:])
+                    if tail == (3, 3, 1):
+                        continue
+                    if tail == (1, 3, 3):
+                        updates[key] = tensor.transpose(0, 2, 3, 1).contiguous()
+                    elif tail == (3, 1, 3):
+                        updates[key] = tensor.transpose(0, 3, 1, 2).contiguous()
+        except Exception as exc:
+            log.warning("Skipping audio-tower repair for %s: %s", weights_path.name, exc)
+            continue
         if not updates:
             continue
         for key, value in updates.items():
@@ -198,6 +207,13 @@ def _ensure_model() -> Path:
 def _friendly_load_error(exc: Exception) -> RuntimeError:
     message = str(exc)
     lowered = message.lower()
+    if "bfloat16" in lowered and "not understood" in lowered:
+        return RuntimeError(
+            "KevinTex hit an incompatible MLX weight loader while preparing the "
+            "Gemma model cache. Update to the latest KevinTex build, then delete "
+            f"{MODEL_DIR} and relaunch to re-download the OptiQ MLX weights. "
+            f"Original error: {message}"
+        )
     if "audio_tower" in lowered and "shape" in lowered:
         return RuntimeError(
             "The cached MLX Gemma weights have an incompatible audio-tower layout. "
@@ -275,10 +291,10 @@ class MLXGemmaVisionBackend:
                 prompt=formatted,
                 image=[image],
                 max_tokens=MAX_TOKENS_THINKING if think else MAX_TOKENS_FAST,
-                temperature=0.1,
-                top_p=0.95,
+                temperature=0.05 if think else 0.0,
+                top_p=0.9 if think else 0.85,
                 top_k=64,
-                repetition_penalty=1.05,
+                repetition_penalty=1.08,
                 verbose=False,
             )
         finally:
