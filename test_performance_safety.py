@@ -2,6 +2,8 @@
 
 import asyncio
 import io
+import os
+import tempfile
 import threading
 import time
 import unittest
@@ -104,11 +106,13 @@ class InferenceConcurrencyTests(unittest.TestCase):
         backend.default_thinking = False
         backend._inference_lock = threading.Lock()
         backend.llm = FakeLlama()
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as audio:
             audio.write(b"RIFF" + b"\0" * 40)
-            audio.flush()
-            self.assertEqual(backend.recognize_audio(audio.name), "$x^2$")
+            audio_path = audio.name
+        try:
+            self.assertEqual(backend.recognize_audio(audio_path), "$x^2$")
+        finally:
+            os.unlink(audio_path)
         media = backend.llm.kwargs["messages"][0]["content"][0]
         self.assertEqual(media["type"], "image_url")
         self.assertTrue(media["image_url"]["url"].startswith("data:audio/wav;base64,"))

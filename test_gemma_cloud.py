@@ -24,7 +24,8 @@ class ProviderConfigTests(unittest.TestCase):
                 saved = provider_config.read_config()
                 self.assertEqual(saved["mode"], "cloud")
                 self.assertEqual(saved["api_key"], "AIza-test-key")
-                self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
+                if os.name != "nt":
+                    self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
 
                 with patch.object(app, "BACKEND", "gemma"):
                     state = app._provider_state()
