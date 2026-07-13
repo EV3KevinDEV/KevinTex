@@ -2,21 +2,23 @@
 """PyInstaller definition for the unsigned Apple Silicon KevinTex.app."""
 
 import os
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 
 version = os.environ.get("KEVINTEX_VERSION", "0.0.0")
+project = Path(SPECPATH).resolve().parents[1]
 mlx_datas, mlx_binaries, mlx_hidden = collect_all("mlx")
 vlm_datas, vlm_binaries, vlm_hidden = collect_all("mlx_vlm")
 
 a = Analysis(
-    ["packaging/macos/desktop_macos.py"],
-    pathex=["."],
+    [str(project / "packaging" / "macos" / "desktop_macos.py")],
+    pathex=[str(project)],
     binaries=mlx_binaries + vlm_binaries,
     datas=[
-        ("static", "static"),
-        ("snip.py", "."),
+        (str(project / "static"), "static"),
+        (str(project / "snip.py"), "."),
     ]
     + mlx_datas
     + vlm_datas,
