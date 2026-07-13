@@ -46,9 +46,9 @@ vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
 
 Prebuilt packages are attached to each [GitHub release](https://github.com/EV3KevinDEV/KevinTex/releases):
 
-- **Ubuntu:** `kevintex_1.2.3_all.deb`
-- **Windows:** portable `KevinTex-1.2.3-windows-x64.zip` containing `KevinTex.exe`
-- **Apple Silicon macOS:** `KevinTex-1.2.3-macOS-arm64.dmg` or `.zip`
+- **Ubuntu:** `kevintex_1.2.4_all.deb`
+- **Windows:** portable `KevinTex-1.2.4-windows-x64.zip` containing `KevinTex.exe`
+- **Apple Silicon macOS:** `KevinTex-1.2.4-macOS-arm64.dmg` or `.zip`
 
 The Windows and macOS applications open in a native window. Model weights are
 not bundled; they download to the current user's application-data directory on
@@ -62,7 +62,7 @@ Two options:
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/kevintex_1.2.3_all.deb
+sudo apt install ./dist/kevintex_1.2.4_all.deb
 ```
 
 **Current user only (no root):**
