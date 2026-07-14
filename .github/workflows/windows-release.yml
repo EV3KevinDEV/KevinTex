@@ -85,23 +85,45 @@ jobs:
         run: |
           & ./packaging/windows/build-llama-backend.ps1 -Acceleration $env:ACCELERATION
 
-      - name: Verify native acceleration runtime
+      - name: Verify acceleration runtime
         run: |
           if ($env:ACCELERATION -eq "cuda") {
             python -c "import torch; assert torch.version.cuda, 'CPU PyTorch wheel remained in CUDA build'; print('PyTorch CUDA', torch.version.cuda)"
           }
           @'
           import os
-          if os.environ["ACCELERATION"] == "cuda":
-              import backend_gemma
-              backend_gemma._preload_cuda_libs()
-          import llama_cpp
-          from llama_cpp import llama_cpp as native
-          info = native.llama_print_system_info().decode("utf-8", "replace")
-          print(info)
-          expected = {"cuda": "CUDA", "vulkan": "VULKAN"}.get(os.environ["ACCELERATION"])
-          if expected and expected not in info.upper():
-              raise RuntimeError(f"{expected} support is missing from the packaged llama.cpp runtime")
+          from pathlib import Path
+
+          acceleration = os.environ["ACCELERATION"]
+          if acceleration == "cuda":
+              import importlib.util
+              import torch
+
+              llama_spec = importlib.util.find_spec("llama_cpp")
+              if llama_spec is None or not llama_spec.submodule_search_locations:
+                  raise ModuleNotFoundError("llama_cpp package is missing")
+              llama_lib = Path(next(iter(llama_spec.submodule_search_locations))) / "lib"
+              cuda_backend = llama_lib / "ggml-cuda.dll"
+              if not cuda_backend.is_file():
+                  raise FileNotFoundError("CUDA llama.cpp backend DLL is missing")
+              imports = cuda_backend.read_bytes().lower()
+              for dependency in (b"cudart64_12.dll", b"cublas64_12.dll", b"nvcuda.dll"):
+                  if dependency not in imports:
+                      raise RuntimeError(f"{dependency.decode()} is not linked by ggml-cuda.dll")
+              torch_lib = Path(torch.__file__).parent / "lib"
+              for dependency in ("cudart64_12.dll", "cublas64_12.dll"):
+                  if not (torch_lib / dependency).is_file():
+                      raise FileNotFoundError(f"PyTorch CUDA runtime is missing {dependency}")
+              print(f"Verified CUDA backend and runtime DLLs in {llama_lib}")
+          else:
+              import llama_cpp
+              from llama_cpp import llama_cpp as native
+
+              info = native.llama_print_system_info().decode("utf-8", "replace")
+              print(info)
+              expected = {"vulkan": "VULKAN"}.get(acceleration)
+              if expected and expected not in info.upper():
+                  raise RuntimeError(f"{expected} support is missing from the packaged llama.cpp runtime")
           '@ | python -
 
       - name: Run source checks
@@ -128,6 +150,13 @@ jobs:
           }
           if (-not (Test-Path "dist/KevinTex/_internal/static/index.html")) {
             throw "Packaged frontend data is missing."
+          }
+          if ($env:ACCELERATION -eq "cuda") {
+            foreach ($dependency in @("ggml-cuda.dll", "cudart64_12.dll", "cublas64_12.dll")) {
+              if (-not (Get-ChildItem "dist/KevinTex" -Recurse -Filter $dependency -File)) {
+                throw "Packaged CUDA build is missing $dependency."
+              }
+            }
           }
 
       - name: Create versioned archive
