@@ -97,24 +97,42 @@ from backend_vlm import (  # noqa: E402
 )
 
 
+_CUDA_DLL_DIR_HANDLES = []
+
+
 def _preload_cuda_libs() -> None:
-    """Make torch's pip-bundled NVIDIA CUDA libs resolvable to libllama.so.
+    """Make torch's pip-bundled NVIDIA CUDA libs resolvable to llama.cpp.
 
-    The prebuilt cu121 `llama-cpp-python` wheel links against libcudart.so.12 /
-    libcublas.so.12 etc. which aren't on the default ld path. Loading them with
-    RTLD_GLOBAL before importing `llama_cpp` makes the symbols available to the
-    dlopen of libllama.so. Best-effort: silently skip if torch/nvidia isn't
-    present (CPU-only fallback).
+    CUDA wheels link against runtime libraries that are not always on the
+    process search path. On Windows, PyTorch stores those DLLs in ``torch/lib``;
+    keep an ``add_dll_directory`` handle alive for the process lifetime. On
+    Linux, load the pip-bundled NVIDIA libraries globally before importing
+    ``llama_cpp``. Best-effort: silently skip if torch/CUDA is not present.
     """
-    import ctypes
-    import glob
-
     try:
         import torch  # noqa: F401  -- ensure torch's nvidia pip pkgs exist
     except Exception:
         return
 
+    if os.name == "nt":
+        torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if not os.path.isdir(torch_lib):
+            return
+        path_entries = os.environ.get("PATH", "").split(os.pathsep)
+        if torch_lib not in path_entries:
+            os.environ["PATH"] = torch_lib + os.pathsep + os.environ.get("PATH", "")
+        add_dll_directory = getattr(os, "add_dll_directory", None)
+        if add_dll_directory is not None:
+            try:
+                _CUDA_DLL_DIR_HANDLES.append(add_dll_directory(torch_lib))
+            except OSError:
+                pass
+        return
+
     # torch >=2 ships CUDA runtime libs under site-packages/nvidia/<lib>/lib/.
+    import ctypes
+    import glob
+
     try:
         site_pkg = os.path.dirname(os.path.dirname(torch.__file__))
     except Exception:
