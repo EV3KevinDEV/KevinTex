@@ -95,14 +95,16 @@ jobs:
           from pathlib import Path
 
           acceleration = os.environ["ACCELERATION"]
-          if acceleration == "cuda":
+          if acceleration in {"cuda", "vulkan"}:
               import importlib.util
-              import torch
 
               llama_spec = importlib.util.find_spec("llama_cpp")
               if llama_spec is None or not llama_spec.submodule_search_locations:
                   raise ModuleNotFoundError("llama_cpp package is missing")
               llama_lib = Path(next(iter(llama_spec.submodule_search_locations))) / "lib"
+          if acceleration == "cuda":
+              import torch
+
               cuda_backend = llama_lib / "ggml-cuda.dll"
               if not cuda_backend.is_file():
                   raise FileNotFoundError("CUDA llama.cpp backend DLL is missing")
@@ -115,15 +117,19 @@ jobs:
                   if not (torch_lib / dependency).is_file():
                       raise FileNotFoundError(f"PyTorch CUDA runtime is missing {dependency}")
               print(f"Verified CUDA backend and runtime DLLs in {llama_lib}")
+          elif acceleration == "vulkan":
+              vulkan_backend = llama_lib / "ggml-vulkan.dll"
+              if not vulkan_backend.is_file():
+                  raise FileNotFoundError("Vulkan llama.cpp backend DLL is missing")
+              if b"vulkan-1.dll" not in vulkan_backend.read_bytes().lower():
+                  raise RuntimeError("ggml-vulkan.dll is not linked to the Vulkan loader")
+              print(f"Verified Vulkan backend DLL in {llama_lib}")
           else:
               import llama_cpp
               from llama_cpp import llama_cpp as native
 
               info = native.llama_print_system_info().decode("utf-8", "replace")
               print(info)
-              expected = {"vulkan": "VULKAN"}.get(acceleration)
-              if expected and expected not in info.upper():
-                  raise RuntimeError(f"{expected} support is missing from the packaged llama.cpp runtime")
           '@ | python -
 
       - name: Run source checks
@@ -156,6 +162,11 @@ jobs:
               if (-not (Get-ChildItem "dist/KevinTex" -Recurse -Filter $dependency -File)) {
                 throw "Packaged CUDA build is missing $dependency."
               }
+            }
+          }
+          if ($env:ACCELERATION -eq "vulkan") {
+            if (-not (Get-ChildItem "dist/KevinTex" -Recurse -Filter "ggml-vulkan.dll" -File)) {
+              throw "Packaged Vulkan build is missing ggml-vulkan.dll."
             }
           }
 
