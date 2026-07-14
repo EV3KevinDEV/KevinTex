@@ -278,6 +278,9 @@ def _device_label() -> str:
         return "cloud"
     if active_backend == "mlx":
         return "metal"
+    acceleration = os.environ.get("LOCALTEX_ACCELERATION", "").strip().lower()
+    if acceleration in {"cpu", "cuda", "rocm", "vulkan", "sycl"}:
+        return acceleration
     try:
         import torch
 

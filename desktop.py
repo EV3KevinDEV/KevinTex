@@ -38,25 +38,51 @@ def _configure_user_paths() -> Path:
     return data_dir
 
 
-def _configure_llama_backend() -> None:
-    """Make the shipped build CPU-safe while allowing custom CUDA builds."""
-    bundled_cuda_marker = (
-        Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "cuda_enabled.txt"
+def _bundled_acceleration() -> str:
+    """Return the packaged or explicitly requested llama.cpp backend."""
+    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+    marker = bundle_dir / "acceleration.txt"
+    if marker.is_file():
+        try:
+            normalized = marker.read_text(encoding="utf-8").strip().lower()
+        except (OSError, UnicodeError):
+            normalized = ""
+        if normalized in {"cpu", "cuda", "rocm", "vulkan", "sycl"}:
+            return normalized
+
+    # Compatibility with the 1.2.5 CUDA package. A bundled marker must win over
+    # ambient environment variables so its native DLLs and offload mode cannot
+    # be mismatched accidentally.
+    if (bundle_dir / "cuda_enabled.txt").is_file():
+        return "cuda"
+
+    requested = os.environ.get("KEVINTEX_ACCELERATION") or os.environ.get(
+        "LOCALTEX_ACCELERATION"
     )
-    cuda_requested = bundled_cuda_marker.is_file() or os.environ.get(
-        "KEVINTEX_CUDA", ""
-    ).lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    if cuda_requested:
+    if requested:
+        normalized = requested.strip().lower()
+        if normalized in {"cpu", "cuda", "rocm", "vulkan", "sycl"}:
+            return normalized
+    if os.environ.get("KEVINTEX_CUDA", "").lower() in {"1", "true", "yes"}:
+        return "cuda"
+    return "cpu"
+
+
+def _configure_llama_backend() -> None:
+    """Configure GPU offload to match the native llama.cpp library."""
+    acceleration = _bundled_acceleration()
+    os.environ["LOCALTEX_ACCELERATION"] = acceleration
+    if acceleration != "cpu":
         return
+
+    os.environ.setdefault("LOCALTEX_N_GPU_LAYERS", "0")
 
     import backend_gemma
     import llama_cpp.llama_chat_format as chat_format
 
     backend_gemma.N_GPU_LAYERS = 0
+    if getattr(chat_format, "_kevintex_cpu_patch", False):
+        return
     original = chat_format.Gemma4ChatHandler
 
     def cpu_chat_handler(*args, **kwargs):
@@ -64,6 +90,7 @@ def _configure_llama_backend() -> None:
         return original(*args, **kwargs)
 
     chat_format.Gemma4ChatHandler = cpu_chat_handler
+    chat_format._kevintex_cpu_patch = True
 
 
 def _free_loopback_port() -> int:

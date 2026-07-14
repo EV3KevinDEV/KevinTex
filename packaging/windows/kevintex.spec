@@ -12,9 +12,9 @@ datas = [
     (str(project / "static"), "static"),
     (str(project / "snip.py"), "."),
 ]
-cuda_marker = project / "packaging" / "windows" / "cuda_enabled.txt"
-if cuda_marker.exists():
-    datas.append((str(cuda_marker), "."))
+acceleration_marker = project / "packaging" / "windows" / "acceleration.txt"
+if acceleration_marker.exists():
+    datas.append((str(acceleration_marker), "."))
 binaries = []
 hiddenimports = [
     "backend_gemma",

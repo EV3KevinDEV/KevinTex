@@ -15,6 +15,7 @@ on:
         options:
           - cpu
           - cuda
+          - vulkan
 
 permissions:
   contents: write
@@ -71,17 +72,26 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-windows.txt
 
-      - name: Replace runtime with CUDA wheels
-        if: env.ACCELERATION == 'cuda'
+      - name: Install Vulkan SDK
+        if: env.ACCELERATION == 'vulkan'
         run: |
-          python -m pip uninstall -y llama-cpp-python torch
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
-          python -m pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-          Set-Content -Path packaging/windows/cuda_enabled.txt -Value "CUDA build"
+          choco install vulkan-sdk -y --no-progress
+          $sdk = Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $sdk) { throw "Vulkan SDK installation was not found." }
+          "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+          "$($sdk.FullName)\Bin" >> $env:GITHUB_PATH
+
+      - name: Select llama.cpp acceleration backend
+        run: |
+          & ./packaging/windows/build-llama-backend.ps1 -Acceleration $env:ACCELERATION
 
       - name: Run source checks
         run: |
           python -m py_compile desktop.py packaging/windows/generate_icon.py packaging/windows/generate_version_info.py
+          $tokens = $null
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile("packaging/windows/build-llama-backend.ps1", [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors) { throw ($parseErrors | Out-String) }
           python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('app.py', 'backend_gemma.py', 'backend_gemma_cloud.py', 'backend_mlx.py', 'backend_vlm.py', 'provider_config.py', 'image_preprocessing.py', 'snip.py')]"
           python -m unittest discover -v
           python packaging/windows/generate_version_info.py $env:RELEASE_TAG
@@ -103,7 +113,7 @@ jobs:
 
       - name: Create versioned archive
         run: |
-          $suffix = if ($env:ACCELERATION -eq "cuda") { "-cuda" } else { "" }
+          $suffix = if ($env:ACCELERATION -eq "cpu") { "" } else { "-$env:ACCELERATION" }
           if ($env:ACCELERATION -eq "cuda") {
             # GitHub release assets are capped below 2 GiB. The CUDA runtime is
             # large, so publish standard 7-Zip multi-volume files that extract
@@ -113,7 +123,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "7-Zip packaging failed." }
             "ARCHIVE_GLOB=$archive.*" >> $env:GITHUB_ENV
           } else {
-            $archive = "KevinTex-$env:VERSION-windows-x64.zip"
+            $archive = "KevinTex-$env:VERSION-windows-x64$suffix.zip"
             Compress-Archive -Path "dist/KevinTex/*" -DestinationPath $archive
             "ARCHIVE_GLOB=$archive" >> $env:GITHUB_ENV
           }

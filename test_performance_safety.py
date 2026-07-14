@@ -1,7 +1,6 @@
 """Concurrency, backpressure, and resource-limit tests for KevinTex."""
 
 import asyncio
-import io
 import os
 import tempfile
 import threading
@@ -17,6 +16,13 @@ import app
 import backend_gemma
 import backend_mlx
 from pathlib import Path
+
+
+def upload_file(data: bytes, filename: str) -> UploadFile:
+    file = tempfile.SpooledTemporaryFile()
+    file.write(data)
+    file.seek(0)
+    return UploadFile(file, filename=filename)
 
 
 class ModelInitializationTests(unittest.TestCase):
@@ -76,6 +82,18 @@ class ModelInitializationTests(unittest.TestCase):
             self.assertIs(app._backend_status_module(), backend_mlx)
         finally:
             app._model = previous_model
+            app.BACKEND = previous_backend
+
+    def test_native_acceleration_label_uses_launcher_selection(self):
+        previous_backend = app.BACKEND
+        app.BACKEND = "gemma"
+        try:
+            for acceleration in ("cpu", "cuda", "rocm", "vulkan", "sycl"):
+                with self.subTest(acceleration=acceleration), patch.dict(
+                    os.environ, {"LOCALTEX_ACCELERATION": acceleration}
+                ):
+                    self.assertEqual(app._device_label(), acceleration)
+        finally:
             app.BACKEND = previous_backend
 
     def test_optiq_model_skips_audio_repair(self):
@@ -209,7 +227,7 @@ class UploadLimitTests(unittest.TestCase):
     def test_convert_rejects_oversized_upload_before_inference(self):
         previous_limit = app.MAX_UPLOAD_BYTES
         app.MAX_UPLOAD_BYTES = 8
-        upload = UploadFile(io.BytesIO(b"x" * 9), filename="large.png")
+        upload = upload_file(b"x" * 9, "large.png")
         try:
             response = asyncio.run(
                 app.convert(
@@ -228,7 +246,7 @@ class UploadLimitTests(unittest.TestCase):
     def test_reader_accepts_exact_limit(self):
         previous_limit = app.MAX_UPLOAD_BYTES
         app.MAX_UPLOAD_BYTES = 8
-        upload = UploadFile(io.BytesIO(b"x" * 8), filename="exact.bin")
+        upload = upload_file(b"x" * 8, "exact.bin")
         try:
             raw = asyncio.run(app._read_upload(upload))
         finally:
@@ -256,7 +274,7 @@ class UploadLimitTests(unittest.TestCase):
     def test_voice_is_rejected_on_backend_without_audio(self):
         previous_backend = app.BACKEND
         app.BACKEND = "pix2tex"
-        upload = UploadFile(io.BytesIO(b"not audio"), filename="voice.wav")
+        upload = upload_file(b"not audio", "voice.wav")
         try:
             response = asyncio.run(app.voice(upload, thinking=False))
         finally:
@@ -266,7 +284,7 @@ class UploadLimitTests(unittest.TestCase):
     def test_voice_validates_wav_before_inference(self):
         previous_backend = app.BACKEND
         app.BACKEND = "mlx"
-        upload = UploadFile(io.BytesIO(b"x" * 64), filename="voice.wav")
+        upload = upload_file(b"x" * 64, "voice.wav")
         try:
             response = asyncio.run(app.voice(upload, thinking=False))
         finally:

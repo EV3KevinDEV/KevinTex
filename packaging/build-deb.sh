@@ -2,7 +2,7 @@
 # Build kevintex_<version>_all.deb from the project sources.
 set -euo pipefail
 
-VERSION="${KEVINTEX_VERSION:-1.2.5}"
+VERSION="${KEVINTEX_VERSION:-1.2.6}"
 if [[ ! "$VERSION" =~ ^[0-9]+([.][0-9]+){1,3}$ ]]; then
   echo "KEVINTEX_VERSION must look like 1.2.3" >&2
   exit 2
@@ -50,7 +50,8 @@ Description: Formula-image to LaTeX converter (Snip & Get)
  no external screenshot utility required.
  .
  On first launch the app creates a Python environment. The local
- provider downloads PyTorch, llama.cpp and model weights (~4.1 GB);
+ provider installs an auto-detected CPU, CUDA, ROCm, Vulkan, or SYCL
+ llama.cpp runtime and downloads model weights (~4.1 GB);
  the cloud provider uses a Google AI Studio API key instead.
  LOCALTEX_BACKEND=lfm-vl or =pix2tex selects alternative backends.
 EOF

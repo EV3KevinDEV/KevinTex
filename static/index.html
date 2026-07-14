@@ -1689,7 +1689,16 @@ function applyStatus(s) {
   if (!s) return;
   state.backend = s.backend || null;
   $("#voice-btn").hidden = !s.audio_supported;
-  const dev = s.device === "cuda" ? "GPU" : (s.device === "metal" ? "Apple Silicon" : (s.device === "cloud" ? "Google AI Studio" : "CPU"));
+  const deviceLabels = {
+    cuda: "NVIDIA GPU",
+    rocm: "AMD GPU · ROCm",
+    vulkan: "GPU · Vulkan",
+    sycl: "Intel GPU · SYCL",
+    metal: "Apple Silicon",
+    cloud: "Google AI Studio",
+    cpu: "CPU",
+  };
+  const dev = deviceLabels[s.device] || "CPU";
   $("#device-badge").textContent = `${fmtBackendLabel(s.backend)} · ${dev}`;
   document.title = s.backend === "gemma-cloud" ? "KevinTex — Snip & Get, AI Studio" : "KevinTex — Snip & Get";
   $("#drop-help").textContent = s.backend === "gemma-cloud"

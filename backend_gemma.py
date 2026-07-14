@@ -5,7 +5,7 @@ Uses `unsloth/gemma-4-E2B-it-GGUF` Q4_K_M quant plus the repo's
 offload. Outputs the same Mathpix/SimpleTex-style Markdown+math as the LFM
 backend (prose as plain text, inline math in `$...$`, display math in `$$...$$`)
 and reuses the exact prompt text and `_to_markdown_math()` cleanup from
-`backend_vlm`. Runs entirely on-device (GPU). No cloud.
+`backend_vlm`. Runs entirely on-device using the selected CPU/GPU backend.
 """
 
 from __future__ import annotations
@@ -223,8 +223,12 @@ class GemmaVisionBackend:
         self.mmproj_path = mmproj_path
 
         t0 = time.time()
-        set_status("loading", 0, "Loading model onto GPU…")
-        log.info("Loading Gemma 4 E2B-it (Q4_K_M + mmproj) via llama.cpp…")
+        acceleration = os.environ.get("LOCALTEX_ACCELERATION", "GPU").upper()
+        set_status("loading", 0, f"Loading model with {acceleration}…")
+        log.info(
+            "Loading Gemma 4 E2B-it (Q4_K_M + mmproj) via llama.cpp (%s)…",
+            acceleration,
+        )
         handler = Gemma4ChatHandler(
             clip_model_path=mmproj_path,
             verbose=False,

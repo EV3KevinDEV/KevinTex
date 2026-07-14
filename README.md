@@ -39,7 +39,8 @@ API key.
 - **Recognize again** using the current source image and active Thinking setting
 - **Download `.tex`** output and keyboard shortcuts (`Ctrl/Cmd+K`, `Ctrl/Cmd+S`)
 - **Native desktop builds** for Ubuntu, Windows, and Apple Silicon macOS
-- **Hardware acceleration** with CUDA on Linux/Windows and MLX/Metal on Apple Silicon
+- **Hardware acceleration** with NVIDIA CUDA, AMD ROCm/HIP, Intel/AMD
+  Vulkan, Intel SYCL, and Apple MLX/Metal; optimized CPU builds remain available
 - **Switchable backend** — Gemma is the default; `LOCALTEX_BACKEND=lfm-vl` or
   `LOCALTEX_BACKEND=pix2tex` selects an alternative local backend. The macOS
   application selects `LOCALTEX_BACKEND=mlx` automatically.
@@ -52,9 +53,11 @@ API key.
 
 Prebuilt packages are attached to each [GitHub release](https://github.com/EV3KevinDEV/KevinTex/releases):
 
-- **Ubuntu:** `kevintex_1.2.5_all.deb`
-- **Windows:** portable `KevinTex-1.2.5-windows-x64.zip` containing `KevinTex.exe`
-- **Apple Silicon macOS:** `KevinTex-1.2.5-macOS-arm64.dmg` or `.zip`
+- **Ubuntu:** `kevintex_1.2.6_all.deb`
+- **Windows:** portable `KevinTex-1.2.6-windows-x64.zip` containing `KevinTex.exe`
+- **Windows GPU:** `KevinTex-1.2.6-windows-x64-cuda.7z.001` or
+  `KevinTex-1.2.6-windows-x64-vulkan.zip`
+- **Apple Silicon macOS:** `KevinTex-1.2.6-macOS-arm64.dmg` or `.zip`
 
 The Windows and macOS applications open in a native window. Local model weights
 are not bundled; if you choose the local provider, they download to the current
@@ -69,7 +72,7 @@ Two options:
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/kevintex_1.2.5_all.deb
+sudo apt install ./dist/kevintex_1.2.6_all.deb
 ```
 
 **Current user only (no root):**
@@ -85,6 +88,32 @@ Closing the window stops the server. On first launch, the app shows a provider
 setup screen. The local choice downloads PyTorch/llama.cpp model weights; the
 AI Studio choice asks for a key from
 <https://aistudio.google.com/app/apikey> and does not download model weights.
+
+### Linux and Windows hardware support
+
+| Hardware | Recommended backend | Linux | Windows |
+| --- | --- | --- | --- |
+| Intel or AMD CPU | CPU | Automatic fallback | Standard ZIP |
+| NVIDIA GPU | CUDA 12.4 | Automatic when the driver is detected | CUDA archive |
+| AMD GPU | ROCm/HIP | Automatic when ROCm is installed | Local HIP SDK build |
+| Intel or AMD GPU | Vulkan | Automatic with Vulkan build tools | Vulkan ZIP |
+| Intel GPU | SYCL/oneAPI | Explicit local build | Explicit local build |
+
+The Linux launcher auto-detects a usable backend and stores the choice under
+`~/.local/share/localtex/acceleration`. Override it for the next launch with:
+
+```bash
+KEVINTEX_ACCELERATION=cpu kevintex
+KEVINTEX_ACCELERATION=rocm kevintex
+KEVINTEX_ACCELERATION=vulkan kevintex
+KEVINTEX_ACCELERATION=sycl kevintex
+```
+
+ROCm requires the AMD ROCm SDK and access to `/dev/kfd`. Vulkan source builds
+need `build-essential cmake libvulkan-dev glslc spirv-headers`. SYCL requires
+Intel oneAPI (`icx` and `icpx`). Changing the override rebuilds only the
+llama.cpp Python backend; downloaded model weights remain untouched. Hardware
+and driver support still follows each vendor's compatibility list.
 
 The app window's **Snip** button (computer-with-+ icon) opens a fullscreen
 region selector: drag a box around a formula and it's converted immediately —
@@ -146,6 +175,8 @@ The following optional environment variables tune local inference:
 - `LOCALTEX_N_GPU_LAYERS` — llama.cpp GPU offload (`-1` means all)
 - `LOCALTEX_N_BATCH` — llama.cpp prompt batch size
 - `LOCALTEX_N_THREADS` — CPU inference threads
+- `KEVINTEX_ACCELERATION=auto|cpu|cuda|rocm|vulkan|sycl` — select the Linux
+  llama.cpp runtime (`auto` is the default)
 - `LOCALTEX_MAX_UPLOAD_BYTES` — upload cap (default 20 MiB)
 - `LOCALTEX_INFERENCE_QUEUE_TIMEOUT` — wait before returning busy
 - `LOCALTEX_PROVIDER=local|cloud` — optionally select the Gemma provider before startup
