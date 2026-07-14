@@ -11,10 +11,58 @@ maim, etc.) and no xdg-desktop-portal backend. Esc cancels.
 Usage: snip.py <output_path>
 """
 
+import math
 import sys
 
-from PIL import ImageGrab, ImageTk
+from PIL import Image, ImageGrab, ImageTk
 import tkinter as tk
+
+
+def _display_size(
+    capture_size: tuple[int, int],
+    screen_size: tuple[int, int],
+    platform: str | None = None,
+) -> tuple[int, int]:
+    """Choose the logical overlay size for a pixel-sized screen capture.
+
+    macOS ImageGrab returns Retina pixels while Tk reports screen dimensions in
+    logical points. Showing the capture at its raw pixel dimensions therefore
+    zooms a 2x Retina image so that only its upper-left quadrant is visible.
+    """
+    platform = sys.platform if platform is None else platform
+    screen_w, screen_h = screen_size
+    if platform == "darwin" and screen_w > 0 and screen_h > 0:
+        return screen_w, screen_h
+    return capture_size
+
+
+def _capture_crop_box(
+    start: tuple[int, int],
+    end: tuple[int, int],
+    display_size: tuple[int, int],
+    capture_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Map a selection in logical display coordinates to capture pixels."""
+    display_w, display_h = display_size
+    capture_w, capture_h = capture_size
+    if min(display_w, display_h, capture_w, capture_h) <= 0:
+        raise ValueError("screen dimensions must be positive")
+
+    left, right = sorted((start[0], end[0]))
+    top, bottom = sorted((start[1], end[1]))
+    left = max(0, min(display_w, left))
+    right = max(0, min(display_w, right))
+    top = max(0, min(display_h, top))
+    bottom = max(0, min(display_h, bottom))
+
+    scale_x = capture_w / display_w
+    scale_y = capture_h / display_h
+    return (
+        max(0, math.floor(left * scale_x)),
+        max(0, math.floor(top * scale_y)),
+        min(capture_w, math.ceil(right * scale_x)),
+        min(capture_h, math.ceil(bottom * scale_y)),
+    )
 
 
 def main():
@@ -29,16 +77,23 @@ def main():
         print(f"ERROR: screen grab failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    w, h = full.size
-
     root = tk.Tk()
+    screen_size = (root.winfo_screenwidth(), root.winfo_screenheight())
+    display_size = _display_size(full.size, screen_size)
+    display_w, display_h = display_size
+
     root.attributes("-fullscreen", True)
     root.configure(bg="black", cursor="crosshair")
-    root.geometry(f"{w}x{h}+0+0")
+    root.geometry(f"{display_w}x{display_h}+0+0")
 
-    canvas = tk.Canvas(root, width=w, height=h, highlightthickness=0)
-    canvas.pack()
-    bg = ImageTk.PhotoImage(full)
+    canvas = tk.Canvas(
+        root, width=display_w, height=display_h, highlightthickness=0
+    )
+    canvas.pack(fill=tk.BOTH, expand=True)
+    overlay = full
+    if full.size != display_size:
+        overlay = full.resize(display_size, Image.Resampling.LANCZOS)
+    bg = ImageTk.PhotoImage(overlay, master=canvas)
     canvas.create_image(0, 0, anchor="nw", image=bg)
 
     state = {"start": None, "rect": None, "done": False}
@@ -69,8 +124,12 @@ def main():
             print("ERROR: region too small", file=sys.stderr)
             sys.exit(1)
 
-        crop = full.crop((left, top, right, bottom))
+        crop_box = _capture_crop_box(
+            (left, top), (right, bottom), display_size, full.size
+        )
+        crop = full.crop(crop_box)
         crop.save(out, "PNG")
+        crop.close()
         print(out)
 
     def on_esc(_e):

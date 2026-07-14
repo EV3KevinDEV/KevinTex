@@ -13,6 +13,13 @@ import threading
 import time
 from pathlib import Path
 
+# huggingface_hub reads these once, at import time. The bundled macOS app uses
+# the stable HTTPS downloader because hf-xet CAS credentials can expire with a
+# 401 in long, multi-gigabyte public-model downloads. Explicit user overrides
+# still win.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
+
 from backend_vlm import AUDIO_PROMPT, PROMPT, THINKING_PROMPT, _extract_markdown
 
 log = logging.getLogger("kevintex")
@@ -27,6 +34,14 @@ MAX_TOKENS_THINKING = 8192
 _LEGACY_MODEL_DIRS = (
     "gemma-4-e2b-it-mlx-4bit",
 )
+_DOWNLOAD_PATTERNS = [
+    "*.json",
+    "*.safetensors",
+    "*.model",
+    "*.txt",
+    "*.jinja",
+    "optiq/*",
+]
 
 
 def _default_models_dir() -> Path:
@@ -165,6 +180,51 @@ def model_files_present() -> bool:
     return _model_files_ready()
 
 
+def _is_xet_authorization_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "401" in message and any(
+        marker in message for marker in ("xethub", "xet-bridge", "cas-bridge")
+    )
+
+
+def _friendly_download_error(exc: Exception) -> RuntimeError:
+    if _is_xet_authorization_error(exc):
+        return RuntimeError(
+            "Hugging Face rejected a temporary model-download credential (401). "
+            "KevinTex retried using the standard HTTPS downloader. Verify that "
+            "macOS Date & Time is set automatically, then relaunch; the partial "
+            "download is preserved and will resume. If it still fails, check that "
+            "your VPN or firewall allows huggingface.co."
+        )
+    return RuntimeError(f"Could not download local MLX model {MODEL_ID}: {exc}")
+
+
+def _download_model_snapshot(snapshot_download) -> None:
+    """Download the selected public model, refreshing a failed signed URL once."""
+    for attempt in range(2):
+        try:
+            snapshot_download(
+                repo_id=MODEL_ID,
+                local_dir=MODEL_DIR,
+                allow_patterns=_DOWNLOAD_PATTERNS,
+                max_workers=4,
+                etag_timeout=30,
+            )
+            return
+        except Exception as exc:
+            if not _is_xet_authorization_error(exc) or attempt == 1:
+                raise _friendly_download_error(exc) from exc
+            log.warning(
+                "Hugging Face Xet authorization failed; refreshing download URLs"
+            )
+            set_status(
+                "downloading",
+                min(99, int(_download_size() / EXPECTED_BYTES * 100)),
+                "Refreshing Hugging Face download credentials…",
+            )
+            time.sleep(1.0)
+
+
 def _ensure_model() -> Path:
     _purge_legacy_models()
     if _model_files_ready():
@@ -187,18 +247,7 @@ def _ensure_model() -> Path:
     try:
         from huggingface_hub import snapshot_download
 
-        snapshot_download(
-            repo_id=MODEL_ID,
-            local_dir=MODEL_DIR,
-            allow_patterns=[
-                "*.json",
-                "*.safetensors",
-                "*.model",
-                "*.txt",
-                "*.jinja",
-                "optiq/*",
-            ],
-        )
+        _download_model_snapshot(snapshot_download)
     finally:
         stop.set()
         thread.join(timeout=2)
