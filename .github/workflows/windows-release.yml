@@ -85,6 +85,25 @@ jobs:
         run: |
           & ./packaging/windows/build-llama-backend.ps1 -Acceleration $env:ACCELERATION
 
+      - name: Verify native acceleration runtime
+        run: |
+          if ($env:ACCELERATION -eq "cuda") {
+            python -c "import torch; assert torch.version.cuda, 'CPU PyTorch wheel remained in CUDA build'; print('PyTorch CUDA', torch.version.cuda)"
+          }
+          @'
+          import os
+          if os.environ["ACCELERATION"] == "cuda":
+              import backend_gemma
+              backend_gemma._preload_cuda_libs()
+          import llama_cpp
+          from llama_cpp import llama_cpp as native
+          info = native.llama_print_system_info().decode("utf-8", "replace")
+          print(info)
+          expected = {"cuda": "CUDA", "vulkan": "VULKAN"}.get(os.environ["ACCELERATION"])
+          if expected and expected not in info.upper():
+              raise RuntimeError(f"{expected} support is missing from the packaged llama.cpp runtime")
+          '@ | python -
+
       - name: Run source checks
         run: |
           python -m py_compile desktop.py packaging/windows/generate_icon.py packaging/windows/generate_version_info.py

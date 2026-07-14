@@ -25,7 +25,7 @@ switch ($Acceleration) {
             --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
     }
     "cuda" {
-        Invoke-Pip install --upgrade torch `
+        Invoke-Pip install --upgrade --force-reinstall --no-cache-dir torch `
             --index-url https://download.pytorch.org/whl/cu124
         Invoke-Pip install --upgrade --force-reinstall --no-cache-dir `
             --only-binary llama-cpp-python `
