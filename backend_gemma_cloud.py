@@ -9,6 +9,7 @@ import threading
 import time
 
 from backend_vlm import (
+    AUDIO_PROMPT,
     PROMPT,
     THINKING_PROMPT,
     _extract_markdown,
@@ -20,9 +21,16 @@ log = logging.getLogger("kevintex")
 # Google currently exposes these Gemma 4 models through the Gemini API.  The
 # A4B model is the smaller hosted option and supports image input for OCR.
 MODEL_ID = os.environ.get("LOCALTEX_GEMMA_CLOUD_MODEL", "gemma-4-26b-a4b-it")
+# Hosted Gemma 4 image models do not accept audio. Google AI Studio's
+# audio-capable Gemini model uses the same API key and SDK client.
+AUDIO_MODEL_ID = os.environ.get(
+    "LOCALTEX_GEMINI_AUDIO_MODEL", "gemini-3.5-flash"
+)
 MAX_TOKENS_FAST = 1024
 MAX_TOKENS_THINKING = 3072
 REQUEST_TIMEOUT_MS = 120_000
+# Inline media requests must stay below 20 MB after transport encoding.
+MAX_INLINE_AUDIO_BYTES = 14 * 1024 * 1024
 
 _STATUS = {"phase": "init", "progress": 0, "message": "Starting…", "error": None}
 _status_lock = threading.Lock()
@@ -65,7 +73,7 @@ def _response_text(response) -> str:
 
 
 class GemmaCloudBackend:
-    """Google AI Studio-backed Gemma 4 image OCR backend."""
+    """Google AI Studio-backed image OCR and voice transcription backend."""
 
     def __init__(self, api_key: str | None = None):
         api_key = (api_key or os.environ.get("GEMINI_API_KEY", "")).strip()
@@ -102,19 +110,9 @@ class GemmaCloudBackend:
         if callable(close):
             close()
 
-    def recognize(self, img, thinking: bool | None = None) -> str:
-        """Recognize a formula image through the hosted Gemma 4 model."""
-        think = self.default_thinking if thinking is None else bool(thinking)
-        prompt = THINKING_PROMPT if think else PROMPT
+    def _generation_config(self, think: bool):
         max_tokens = MAX_TOKENS_THINKING if think else MAX_TOKENS_FAST
-
-        with io.BytesIO() as buffer:
-            img.save(buffer, format="PNG")
-            image_part = self.types.Part.from_bytes(
-                data=buffer.getvalue(), mime_type="image/png"
-            )
-
-        config = self.types.GenerateContentConfig(
+        return self.types.GenerateContentConfig(
             max_output_tokens=max_tokens,
             temperature=0.05,
             top_p=0.9,
@@ -122,6 +120,19 @@ class GemmaCloudBackend:
                 thinking_level="high" if think else "minimal"
             ),
         )
+
+    def recognize(self, img, thinking: bool | None = None) -> str:
+        """Recognize a formula image through the hosted Gemma 4 model."""
+        think = self.default_thinking if thinking is None else bool(thinking)
+        prompt = THINKING_PROMPT if think else PROMPT
+
+        with io.BytesIO() as buffer:
+            img.save(buffer, format="PNG")
+            image_part = self.types.Part.from_bytes(
+                data=buffer.getvalue(), mime_type="image/png"
+            )
+
+        config = self._generation_config(think)
         started = time.perf_counter()
         with self._inference_lock:
             response = self.client.models.generate_content(
@@ -143,14 +154,52 @@ class GemmaCloudBackend:
         )
         return _extract_markdown(content)
 
-    # The hosted 26B and 31B Gemma API models are image-capable, but not the
-    # audio-capable E2B/E4B/12B variants.  Keep the existing voice button
-    # hidden while this backend is active.
     def recognize_audio(self, audio_path: str, thinking: bool | None = None) -> str:
-        raise RuntimeError(
-            "Voice-to-LaTeX is available with local Gemma or MLX, not the "
-            "hosted Gemma 4 model."
+        """Convert spoken mathematics through Google AI Studio's audio model."""
+        think = self.default_thinking if thinking is None else bool(thinking)
+        try:
+            audio_size = os.path.getsize(audio_path)
+        except OSError as exc:
+            raise RuntimeError(f"Could not read the voice recording: {exc}") from exc
+        if audio_size > MAX_INLINE_AUDIO_BYTES:
+            raise RuntimeError(
+                "The voice recording is too large for cloud transcription "
+                "(14 MiB maximum)."
+            )
+        try:
+            with open(audio_path, "rb") as handle:
+                audio_bytes = handle.read()
+        except OSError as exc:
+            raise RuntimeError(f"Could not read the voice recording: {exc}") from exc
+        if not audio_bytes:
+            raise RuntimeError("The voice recording is empty.")
+
+        audio_part = self.types.Part.from_bytes(
+            data=audio_bytes,
+            mime_type="audio/wav",
         )
+        config = self._generation_config(think)
+        started = time.perf_counter()
+        with self._inference_lock:
+            response = self.client.models.generate_content(
+                model=AUDIO_MODEL_ID,
+                contents=[AUDIO_PROMPT, audio_part],
+                config=config,
+            )
+        elapsed = time.perf_counter() - started
+        content = _response_text(response)
+        if not content.strip():
+            raise RuntimeError(
+                "Google AI Studio returned an empty voice transcription. "
+                "Check model access and try again."
+            )
+        log.info(
+            "Cloud Gemini transcribed %d audio bytes in %.2fs (thinking=%s)",
+            len(audio_bytes),
+            elapsed,
+            think,
+        )
+        return _extract_markdown(content)
 
 
 def load(api_key: str | None = None) -> GemmaCloudBackend:

@@ -291,6 +291,21 @@ class UploadLimitTests(unittest.TestCase):
             app.BACKEND = previous_backend
         self.assertEqual(response.status_code, 400)
 
+    def test_cloud_provider_accepts_voice_uploads(self):
+        wav = b"RIFF" + (40).to_bytes(4, "little") + b"WAVE" + b"\0" * 36
+        upload = upload_file(wav, "voice.wav")
+        with (
+            patch.object(app, "BACKEND", "gemma-cloud"),
+            patch.object(app, "model_ready", return_value=True),
+            patch.object(app, "_run_audio", return_value="$x^2$") as run_audio,
+        ):
+            response = asyncio.run(app.voice(upload, thinking=False))
+            health = app.health()
+
+        self.assertEqual(response["latex"], "$x^2$")
+        self.assertTrue(health["audio_supported"])
+        run_audio.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

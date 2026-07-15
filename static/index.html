@@ -465,7 +465,7 @@
     <div class="splash-progress"><div class="splash-bar" id="splash-bar"></div></div>
     <div class="splash-sub" id="splash-sub"></div>
     <div class="splash-setup" id="splash-setup" hidden>
-      <p>Choose how KevinTex should run Gemma 4. Local weights stay on this computer; AI Studio sends images to Google and may use your account quota.</p>
+      <p>Choose how KevinTex should run Gemma 4. Local weights stay on this computer; AI Studio sends images and voice recordings to Google and may use your account quota.</p>
       <div class="setup-option">
         <button id="setup-local" type="button">Download model weights</button>
         <small>Runs locally after a one-time download of about 4.1 GB. No API key required.</small>
@@ -617,7 +617,7 @@
           <button class="icon-btn accent" id="settings-cloud" type="button">Use cloud</button>
         </div>
       </div>
-      <div class="provider-help"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a Google AI Studio API key ↗</a> · The key stays in the local app config.</div>
+      <div class="provider-help"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a Google AI Studio API key ↗</a> · The key stays in the local app config. Cloud images and voice recordings are sent to Google.</div>
     </div>
     <div class="set-group">
       <label class="title">Appearance</label>
@@ -1566,8 +1566,9 @@ let providerSwitching = false;
 function describeProvider(p) {
   if (!p || !p.supported) return "Provider selection is unavailable for this backend.";
   if (p.mode === "cloud") {
+    const audioModel = p.cloud_audio_model ? ` · voice ${p.cloud_audio_model}` : "";
     return p.api_key_configured
-      ? `Google AI Studio API · ${p.cloud_model} · key ${p.api_key_hint}`
+      ? `Google AI Studio API · ${p.cloud_model}${audioModel} · key ${p.api_key_hint}`
       : "Google AI Studio API · API key required";
   }
   if (p.mode === "local") {
@@ -1688,7 +1689,11 @@ function fmtBackendLabel(s) {
 function applyStatus(s) {
   if (!s) return;
   state.backend = s.backend || null;
-  $("#voice-btn").hidden = !s.audio_supported;
+  const voiceButton = $("#voice-btn");
+  voiceButton.hidden = !s.audio_supported;
+  voiceButton.title = s.backend === "gemma-cloud"
+    ? "Dictate a formula — the recording is sent to Google AI Studio"
+    : "Dictate a formula";
   const deviceLabels = {
     cuda: "NVIDIA GPU",
     rocm: "AMD GPU · ROCm",
@@ -1702,7 +1707,7 @@ function applyStatus(s) {
   $("#device-badge").textContent = `${fmtBackendLabel(s.backend)} · ${dev}`;
   document.title = s.backend === "gemma-cloud" ? "KevinTex — Snip & Get, AI Studio" : "KevinTex — Snip & Get";
   $("#drop-help").textContent = s.backend === "gemma-cloud"
-    ? "PNG / JPG / BMP / WEBP — images are sent to Google AI Studio"
+    ? "PNG / JPG / BMP / WEBP — images and voice recordings are sent to Google AI Studio"
     : "PNG / JPG / BMP / WEBP — local mode runs 100% on this machine";
   if (s.phase === "setup" || s.setup_required) {
     _ready = false;
@@ -1730,7 +1735,7 @@ function applyStatus(s) {
   splashBar.style.width = (s.progress || 0) + "%";
   splashSub.textContent = s.phase === "downloading"
     ? "One-time setup — this won't repeat on future launches"
-    : (s.backend === "gemma-cloud" ? "Hosted Gemma 4 · images are sent to Google" : ((s.backend === "gemma" || s.backend === "mlx") ? "Gemma 4 E2B-it · " + dev : dev));
+    : (s.backend === "gemma-cloud" ? "Hosted models · images and voice recordings are sent to Google" : ((s.backend === "gemma" || s.backend === "mlx") ? "Gemma 4 E2B-it · " + dev : dev));
   splashRetry.hidden = true;
 }
 

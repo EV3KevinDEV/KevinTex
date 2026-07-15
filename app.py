@@ -3,8 +3,9 @@
 A local, free, unlimited SimpleTex-style app. The default backend is Google's
 Gemma 4 E2B-it multimodal model (Q4_K_M GGUF + vision projector) run via
 llama.cpp entirely on this machine. Users can also select the hosted Gemma 4
-26B A4B model through Google AI Studio. Set LOCALTEX_BACKEND=mlx for Apple
-Silicon MLX acceleration,
+26B A4B model through Google AI Studio; cloud voice transcription uses an
+audio-capable Gemini model through the same API key. Set LOCALTEX_BACKEND=mlx
+for Apple Silicon MLX acceleration,
 LOCALTEX_BACKEND=lfm-vl for the Liquid AI LFM2.5-VL backend, or
 LOCALTEX_BACKEND=pix2tex for the smaller pix2tex model.
 """
@@ -32,6 +33,7 @@ from provider_config import get_api_key, read_config, save_config
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND = os.environ.get("LOCALTEX_BACKEND", "gemma").lower()
 _GEMMA_BACKENDS = {"gemma", "mlx", "gemma-cloud"}
+_AUDIO_BACKENDS = {"gemma", "mlx", "gemma-cloud"}
 _PROVIDER_MODES = {"local", "cloud"}
 # Default thinking mode for the VLM backend (see backend_vlm). 0/1 via env.
 THINKING_DEFAULT = os.environ.get("LOCALTEX_THINKING", "0") in ("1", "true", "True", "yes")
@@ -115,6 +117,9 @@ def _provider_state() -> dict:
         "local_model_available": _local_model_available(),
         "cloud_model": os.environ.get(
             "LOCALTEX_GEMMA_CLOUD_MODEL", "gemma-4-26b-a4b-it"
+        ),
+        "cloud_audio_model": os.environ.get(
+            "LOCALTEX_GEMINI_AUDIO_MODEL", "gemini-3.5-flash"
         ),
     }
 
@@ -310,9 +315,7 @@ def _run_audio(audio_path: str, thinking: bool | None):
     try:
         backend = get_model()
         if not hasattr(backend, "recognize_audio"):
-            raise RuntimeError(
-                "Voice-to-LaTeX requires the Apple Silicon MLX backend."
-            )
+            raise RuntimeError("The active provider does not support Voice-to-LaTeX.")
         return backend.recognize_audio(audio_path, thinking=thinking)
     finally:
         _inference_slots.release()
@@ -477,9 +480,9 @@ async def voice(
     thinking: bool | None = Form(None),
 ):
     """Convert a short WAV recording of spoken mathematics to LaTeX."""
-    if _active_backend() not in ("gemma", "mlx"):
+    if _active_backend() not in _AUDIO_BACKENDS:
         return JSONResponse(
-            {"error": "Voice-to-LaTeX requires local Gemma or MLX."},
+            {"error": "Voice-to-LaTeX requires a Gemma or AI Studio provider."},
             status_code=501,
         )
     try:
@@ -604,7 +607,7 @@ def health():
         "backend": active_backend,
         "model_loaded": _model is not None,
         "thinking_default": THINKING_DEFAULT,
-        "audio_supported": active_backend in ("gemma", "mlx"),
+        "audio_supported": active_backend in _AUDIO_BACKENDS,
         "setup_required": _setup_required(),
     }
 
@@ -638,7 +641,7 @@ def status():
     s["backend"] = active_backend
     s["device"] = _device_label()
     s["model_loaded"] = model_ready()
-    s["audio_supported"] = active_backend in ("gemma", "mlx")
+    s["audio_supported"] = active_backend in _AUDIO_BACKENDS
     s["setup_required"] = False
     s["provider"] = _provider_state()
     return s

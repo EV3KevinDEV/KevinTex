@@ -126,6 +126,76 @@ class CloudBackendTests(unittest.TestCase):
         self.assertEqual(calls["request"]["contents"], ["image-part", backend_gemma_cloud.PROMPT])
         self.assertEqual(calls["image"]["mime_type"], "image/png")
 
+    def test_audio_request_uses_gemini_inline_wav_input(self):
+        calls = {}
+
+        class FakePart:
+            @classmethod
+            def from_bytes(cls, **kwargs):
+                calls["audio"] = kwargs
+                return "audio-part"
+
+        class FakeThinkingConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        class FakeGenerateContentConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        Types = type(
+            "Types",
+            (),
+            {
+                "Part": FakePart,
+                "ThinkingConfig": FakeThinkingConfig,
+                "GenerateContentConfig": FakeGenerateContentConfig,
+            },
+        )
+
+        class Models:
+            def generate_content(self, **kwargs):
+                calls["request"] = kwargs
+                return type("Response", (), {"text": "LATEX: $\\frac{1}{2}$"})()
+
+        backend = backend_gemma_cloud.GemmaCloudBackend.__new__(
+            backend_gemma_cloud.GemmaCloudBackend
+        )
+        backend.types = Types
+        backend.client = type("Client", (), {"models": Models()})()
+        backend.default_thinking = False
+        import threading
+
+        backend._inference_lock = threading.Lock()
+
+        with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
+            audio.write(b"RIFF" + b"\0" * 36 + b"WAVEaudio")
+            audio.flush()
+            with patch.object(
+                backend_gemma_cloud, "AUDIO_MODEL_ID", "gemini-audio-test"
+            ):
+                self.assertEqual(backend.recognize_audio(audio.name), "$\\frac{1}{2}$")
+
+        self.assertEqual(calls["request"]["model"], "gemini-audio-test")
+        self.assertEqual(
+            calls["request"]["contents"],
+            [backend_gemma_cloud.AUDIO_PROMPT, "audio-part"],
+        )
+        self.assertEqual(calls["audio"]["mime_type"], "audio/wav")
+        self.assertTrue(calls["audio"]["data"].startswith(b"RIFF"))
+
+    def test_oversized_audio_is_rejected_before_reading(self):
+        backend = backend_gemma_cloud.GemmaCloudBackend.__new__(
+            backend_gemma_cloud.GemmaCloudBackend
+        )
+        backend.default_thinking = False
+        with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
+            audio.write(b"12345")
+            audio.flush()
+            with patch.object(backend_gemma_cloud, "MAX_INLINE_AUDIO_BYTES", 4):
+                with self.assertRaisesRegex(RuntimeError, "14 MiB maximum"):
+                    backend.recognize_audio(audio.name)
+
 
 if __name__ == "__main__":
     unittest.main()

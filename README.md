@@ -27,7 +27,8 @@ API key.
   fraction/root/integral/matrix starters. Drawings go directly to local Gemma.
 - **Voice-to-LaTeX** — dictate a formula through the microphone; Gemma turns
   spoken math into editable Markdown + LaTeX entirely on-device through MLX on
-  Apple Silicon and llama.cpp on Windows/Linux.
+  Apple Silicon and llama.cpp on Windows/Linux, or through the audio-capable
+  Gemini model when Google AI Studio is selected.
 - **Image preparation tools** — rotate before OCR, invert dark screenshots, and
   compare the original with the exact processed image sent to recognition.
 - **Live KaTeX preview** (bundled locally — the app works with no internet at all)
@@ -46,7 +47,8 @@ API key.
   application selects `LOCALTEX_BACKEND=mlx` automatically.
 - **Local or cloud Gemma** — choose **Download model weights** or **Use Google
   AI Studio API** on first launch. Change the choice later in Settings. The
-  hosted option uses `gemma-4-26b-a4b-it`; images are sent to Google and usage
+  hosted option uses `gemma-4-26b-a4b-it` for images and `gemini-3.5-flash`
+  for voice. Cloud images and voice recordings are sent to Google, and usage
   follows your AI Studio quota/billing.
 
 ## Install
@@ -160,9 +162,11 @@ The same fields are accepted by `POST /api/convert`; `/api/snip` accepts them as
 query parameters. Conversion responses include the applied preprocessing
 metadata.
 
-`POST /api/voice` accepts a 16 kHz mono WAV file in the `audio` multipart field
+`POST /api/voice` accepts a short mono WAV file in the `audio` multipart field
 and an optional `thinking` boolean. It is available with local Gemma backends
-and is hidden while the hosted AI Studio provider is active.
+and the hosted AI Studio provider. Cloud voice requests use Gemini's documented
+[inline audio input](https://ai.google.dev/gemini-api/docs/generate-content/audio)
+and are limited to 14 MiB to stay below its encoded request limit.
 
 ## Performance and resource controls
 
@@ -181,6 +185,7 @@ The following optional environment variables tune local inference:
 - `LOCALTEX_INFERENCE_QUEUE_TIMEOUT` — wait before returning busy
 - `LOCALTEX_PROVIDER=local|cloud` — optionally select the Gemma provider before startup
 - `GEMINI_API_KEY` — optionally provide the Google AI Studio key through the environment
+- `LOCALTEX_GEMINI_AUDIO_MODEL` — override the cloud voice model (default `gemini-3.5-flash`)
 
 The Settings UI stores a key in the per-user `provider.json` file with
 user-only permissions where supported. The key is not stored in browser
