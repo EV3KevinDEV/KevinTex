@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # KevinTex desktop launcher: bootstraps the Python environment on first run,
 # starts the local server, and opens the app in a native window.
-set -u
+set -uo pipefail
 
 APP_DIR="${KEVINTEX_APP_DIR:-${LOCALTEX_APP_DIR:-}}"
 if [ -z "$APP_DIR" ]; then
-    for d in /opt/kevintex "$HOME/.local/opt/kevintex" /opt/localtex "$HOME/.local/opt/localtex"; do
+    for d in "$HOME/.local/opt/kevintex" /opt/kevintex "$HOME/.local/opt/localtex" /opt/localtex; do
         [ -f "$d/app.py" ] && APP_DIR="$d" && break
     done
 fi
@@ -18,57 +18,240 @@ VENV="$DATA_DIR/venv"
 PORT=8321
 URL="http://127.0.0.1:$PORT"
 LOG="$DATA_DIR/server.log"
+MODELS_DIR="$DATA_DIR/models"
+CACHE_DIR="$DATA_DIR/cache"
+ACCELERATION_FILE="$DATA_DIR/acceleration"
 
 mkdir -p "$DATA_DIR"
+if [ ! -e "$MODELS_DIR" ] && [ -d "$APP_DIR/models" ] && [ -w "$APP_DIR" ]; then
+    mv "$APP_DIR/models" "$MODELS_DIR"
+fi
+mkdir -p "$MODELS_DIR" "$CACHE_DIR/huggingface"
+export LOCALTEX_DATA_DIR="$DATA_DIR"
+export LOCALTEX_MODELS_DIR="$MODELS_DIR"
+export HF_HOME="$CACHE_DIR/huggingface"
+
+normalize_acceleration() {
+    case "${1,,}" in
+        auto|cpu|cuda|rocm|vulkan|sycl) printf '%s\n' "${1,,}" ;;
+        *)
+            echo "Unsupported acceleration '$1'. Use auto, cpu, cuda, rocm, vulkan, or sycl." >&2
+            return 2
+            ;;
+    esac
+}
+
+detect_acceleration() {
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+        printf '%s\n' cuda
+    elif { command -v hipconfig >/dev/null 2>&1 || [ -x /opt/rocm/bin/hipconfig ]; } && [ -e /dev/kfd ]; then
+        printf '%s\n' rocm
+    elif command -v glslc >/dev/null 2>&1 && [ -r /usr/include/vulkan/vulkan.h ] && compgen -G '/dev/dri/renderD*' >/dev/null; then
+        # Vulkan is the portable path for Intel and AMD graphics. SYCL remains
+        # available as an explicit opt-in for systems with oneAPI installed.
+        printf '%s\n' vulkan
+    else
+        printf '%s\n' cpu
+    fi
+}
+
+REQUESTED_ACCELERATION="$(normalize_acceleration "${KEVINTEX_ACCELERATION:-${LOCALTEX_ACCELERATION:-auto}}")" || exit $?
+if [ "$REQUESTED_ACCELERATION" = auto ]; then
+    ACCELERATION="$(detect_acceleration)"
+else
+    ACCELERATION="$REQUESTED_ACCELERATION"
+fi
+export LOCALTEX_ACCELERATION="$ACCELERATION"
+if [ "$ACCELERATION" = cpu ]; then
+    export LOCALTEX_N_GPU_LAYERS="${LOCALTEX_N_GPU_LAYERS:-0}"
+fi
 
 notify() {
-    command -v notify-send >/dev/null && notify-send -i kevintex "KevinTex" "$1" || true
+    if command -v notify-send >/dev/null; then
+        notify-send -i kevintex "KevinTex" "$1" || true
+    fi
 }
 
 server_up() {
     curl -sf --max-time 2 "$URL/api/health" >/dev/null 2>&1
 }
 
-# ---------- first-run bootstrap ----------
+server_pid_is_ours() {
+    local pid="$1"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q "uvicorn app:app" || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q -- "--port $PORT"
+}
+
+SERVER_PID=""
+
+stop_server() {
+    if [ -z "$SERVER_PID" ] || ! server_pid_is_ours "$SERVER_PID"; then
+        return
+    fi
+    notify "Stopping KevinTex…"
+    kill "$SERVER_PID" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+        kill -0 "$SERVER_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    if kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill -KILL "$SERVER_PID" 2>/dev/null || true
+    fi
+    rm -f "$DATA_DIR/server.pid"
+}
+
+trap stop_server EXIT INT TERM
+
+# ---------- Python/runtime bootstrap ----------
+check_acceleration_prerequisites() {
+    case "$ACCELERATION" in
+        rocm)
+            if ! command -v hipconfig >/dev/null 2>&1 && [ ! -x /opt/rocm/bin/hipconfig ]; then
+                echo "ROCm was selected, but hipconfig was not found. Install the AMD ROCm SDK first." >&2
+                return 1
+            fi
+            ;;
+        vulkan)
+            if ! command -v cmake >/dev/null 2>&1 || ! command -v glslc >/dev/null 2>&1 || [ ! -r /usr/include/vulkan/vulkan.h ]; then
+                echo "Vulkan was selected, but its build tools are missing." >&2
+                echo "Ubuntu/Debian: sudo apt install build-essential cmake libvulkan-dev glslc spirv-headers" >&2
+                return 1
+            fi
+            ;;
+        sycl)
+            if [ -r /opt/intel/oneapi/setvars.sh ]; then
+                # shellcheck disable=SC1091
+                source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1
+            fi
+            if ! command -v icx >/dev/null 2>&1 || ! command -v icpx >/dev/null 2>&1; then
+                echo "SYCL was selected, but Intel oneAPI compilers (icx/icpx) were not found." >&2
+                return 1
+            fi
+            ;;
+    esac
+}
+
+install_llama_backend() {
+    check_acceleration_prerequisites || return
+    case "$ACCELERATION" in
+        cpu)
+            "$VENV/bin/pip" install --upgrade --force-reinstall --no-cache-dir \
+                --only-binary llama-cpp-python \
+                "llama-cpp-python>=0.3.34" \
+                --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || return
+            ;;
+        cuda)
+            "$VENV/bin/pip" install --upgrade torch torchvision \
+                --index-url https://download.pytorch.org/whl/cu124 || return
+            "$VENV/bin/pip" install --upgrade --force-reinstall --no-cache-dir \
+                --only-binary llama-cpp-python \
+                "llama-cpp-python>=0.3.34" \
+                --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 || return
+            ;;
+        rocm)
+            CMAKE_ARGS="-DGGML_HIP=ON" FORCE_CMAKE=1 \
+                "$VENV/bin/pip" install --upgrade --force-reinstall --no-cache-dir \
+                --no-binary llama-cpp-python \
+                "llama-cpp-python>=0.3.34" || return
+            ;;
+        vulkan)
+            CMAKE_ARGS="-DGGML_VULKAN=ON" FORCE_CMAKE=1 \
+                "$VENV/bin/pip" install --upgrade --force-reinstall --no-cache-dir \
+                --no-binary llama-cpp-python \
+                "llama-cpp-python>=0.3.34" || return
+            ;;
+        sycl)
+            CMAKE_ARGS="-DGGML_SYCL=ON -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx" FORCE_CMAKE=1 \
+                "$VENV/bin/pip" install --upgrade --force-reinstall --no-cache-dir \
+                --no-binary llama-cpp-python \
+                "llama-cpp-python>=0.3.34" || return
+            ;;
+    esac
+}
+
+configure_llama_backend() {
+    install_llama_backend || return
+    printf '%s\n' "$ACCELERATION" > "$ACCELERATION_FILE" || return
+}
+
+bootstrap_environment() {
+    check_acceleration_prerequisites || return
+    python3 -m venv "$VENV" || return
+    "$VENV/bin/pip" install --upgrade pip || return
+    if [ "$ACCELERATION" = cuda ]; then
+        "$VENV/bin/pip" install torch torchvision \
+            --index-url https://download.pytorch.org/whl/cu124 || return
+    else
+        "$VENV/bin/pip" install torch torchvision || return
+    fi
+    install_llama_backend || return
+    "$VENV/bin/pip" install -r "$APP_DIR/requirements.txt" || return
+    printf '%s\n' "$ACCELERATION" > "$ACCELERATION_FILE" || return
+    echo
+    echo "Setup complete ($ACCELERATION backend). You can close this window."
+}
+
+INSTALLED_ACCELERATION="$(tr -d '[:space:]' < "$ACCELERATION_FILE" 2>/dev/null || true)"
+NEEDS_BOOTSTRAP=0
 if [ ! -x "$VENV/bin/uvicorn" ]; then
-    notify "First-run setup: installing the Python environment (PyTorch + llama.cpp). The AI model weights download inside the app on first launch."
-    BOOTSTRAP="set -e
-python3 -m venv '$VENV'
-'$VENV/bin/pip' install --upgrade pip
-'$VENV/bin/pip' install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-# Default backend is Gemma 4 E2B-it via llama.cpp. Install the CUDA wheel
-# explicitly (PyPI default is CPU-only); fall back to cu122/cu124 if needed.
-'$VENV/bin/pip' install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 || \
-'$VENV/bin/pip' install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu122 || \
-'$VENV/bin/pip' install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-'$VENV/bin/pip' install -r '$APP_DIR/requirements.txt'
-echo; echo 'Setup complete. You can close this window.'"
+    NEEDS_BOOTSTRAP=1
+elif [ "$INSTALLED_ACCELERATION" != "$ACCELERATION" ]; then
+    NEEDS_BOOTSTRAP=2
+fi
+
+if [ "$NEEDS_BOOTSTRAP" -ne 0 ]; then
+    if [ "$NEEDS_BOOTSTRAP" -eq 1 ]; then
+        notify "First-run setup: installing the $ACCELERATION runtime. Model weights download inside the app if you choose local mode."
+    else
+        notify "Switching llama.cpp from ${INSTALLED_ACCELERATION:-an older build} to $ACCELERATION."
+    fi
     if command -v zenity >/dev/null; then
-        bash -c "$BOOTSTRAP" > "$DATA_DIR/setup.log" 2>&1 &
+        if [ "$NEEDS_BOOTSTRAP" -eq 1 ]; then
+            bootstrap_environment > "$DATA_DIR/setup.log" 2>&1 &
+        else
+            configure_llama_backend > "$DATA_DIR/setup.log" 2>&1 &
+        fi
         SETUP_PID=$!
-        ( while kill -0 $SETUP_PID 2>/dev/null; do echo "# Installing… (see $DATA_DIR/setup.log)"; sleep 2; done; echo 100 ) | \
+        ( while kill -0 "$SETUP_PID" 2>/dev/null; do echo "# Installing $ACCELERATION runtime… (see $DATA_DIR/setup.log)"; sleep 2; done; echo 100 ) | \
             zenity --progress --pulsate --no-cancel --auto-close \
                    --title="KevinTex first-run setup" \
-                   --text="Downloading PyTorch + llama.cpp + model environment (one time)…" 2>/dev/null
-        wait $SETUP_PID || { zenity --error --text="Setup failed. See $DATA_DIR/setup.log" 2>/dev/null; exit 1; }
+                   --text="Installing the $ACCELERATION inference runtime…" 2>/dev/null
+        wait "$SETUP_PID" || { zenity --error --text="Setup failed. See $DATA_DIR/setup.log" 2>/dev/null; exit 1; }
     else
-        bash -c "$BOOTSTRAP" 2>&1 | tee "$DATA_DIR/setup.log" || exit 1
+        if [ "$NEEDS_BOOTSTRAP" -eq 1 ]; then
+            bootstrap_environment 2>&1 | tee "$DATA_DIR/setup.log" || exit 1
+        else
+            configure_llama_backend 2>&1 | tee "$DATA_DIR/setup.log" || exit 1
+        fi
     fi
-    notify "Setup complete."
+    notify "Setup complete: $ACCELERATION runtime."
 fi
 
 # ---------- start server ----------
-STARTED_BY_US=0
 if ! server_up; then
-    (cd "$APP_DIR" && nohup "$VENV/bin/uvicorn" app:app --host 127.0.0.1 --port $PORT \
-        >> "$LOG" 2>&1 & echo $! > "$DATA_DIR/server.pid")
-    STARTED_BY_US=1
+    rm -f "$DATA_DIR/server.pid"
+    (
+        cd "$APP_DIR" || exit 1
+        nohup "$VENV/bin/uvicorn" app:app --host 127.0.0.1 --port $PORT \
+            >> "$LOG" 2>&1 &
+        echo $! > "$DATA_DIR/server.pid"
+    )
+    SERVER_PID="$(cat "$DATA_DIR/server.pid" 2>/dev/null || true)"
     # The server answers /api/health within a couple of seconds (model loads in
     # the background); the in-app splash then shows download/load progress.
     for _ in $(seq 1 90); do server_up && break; sleep 1; done
     if ! server_up; then
         notify "Server failed to start. See $LOG"
         exit 1
+    fi
+else
+    # Reuse only a server recorded by this launcher. If another process owns
+    # the port, leave it alone rather than killing an unrelated service.
+    candidate="$(cat "$DATA_DIR/server.pid" 2>/dev/null || true)"
+    if server_pid_is_ours "$candidate"; then
+        SERVER_PID="$candidate"
     fi
 fi
 
@@ -83,12 +266,10 @@ if [ -n "$BROWSER" ]; then
     # down when the window closes.
     "$BROWSER" --app="$URL" --class=KevinTex \
         --user-data-dir="$DATA_DIR/window-profile" \
-        --no-first-run --no-default-browser-check >/dev/null 2>&1
-    if [ "$STARTED_BY_US" = 1 ] && [ -f "$DATA_DIR/server.pid" ]; then
-        kill "$(cat "$DATA_DIR/server.pid")" 2>/dev/null
-        rm -f "$DATA_DIR/server.pid"
-    fi
+        --no-first-run --no-default-browser-check --disable-background-mode >/dev/null 2>&1
 else
     xdg-open "$URL" >/dev/null 2>&1 || true
-    # No app-mode browser: leave the server running for the browser tab.
+    # Without app mode there is no reliable close event, so keep the server
+    # alive rather than stopping it while the browser tab is still open.
+    SERVER_PID=""
 fi

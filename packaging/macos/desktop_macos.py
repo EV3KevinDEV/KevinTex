@@ -24,6 +24,8 @@ def _configure_runtime() -> Path:
     os.environ.setdefault("LOCALTEX_DATA_DIR", str(data_dir))
     os.environ.setdefault("LOCALTEX_MODELS_DIR", str(models_dir))
     os.environ.setdefault("HF_HOME", str(cache_dir / "huggingface"))
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
     os.environ["LOCALTEX_BACKEND"] = "mlx"
     return data_dir
 
@@ -67,6 +69,8 @@ def _smoke_test() -> int:
         raise FileNotFoundError(f"Bundled frontend is missing: {index}")
     if app.BACKEND != "mlx":
         raise RuntimeError("macOS MLX backend was not selected")
+    if os.environ.get("HF_HUB_DISABLE_XET") != "1":
+        raise RuntimeError("macOS builds must use the stable Hugging Face downloader")
     from mlx_vlm import load as mlx_load  # noqa: F401
     from mlx_vlm.prompt_utils import apply_chat_template  # noqa: F401
 

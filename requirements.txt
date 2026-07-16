@@ -10,8 +10,12 @@ torchvision
 # (try cu122 / cu124 indexes if cu121 has no matching wheel).
 # The CUDA wheel needs torch's pip-bundled NVIDIA runtime libs, which
 # backend_gemma.py preloads via ctypes at import time -- no system CUDA needed.
+# The packaged launcher can also build llama.cpp for ROCm/HIP, Vulkan, Intel
+# SYCL, or optimized CPU with KEVINTEX_ACCELERATION.
 llama-cpp-python>=0.3.34
 huggingface_hub
+# Optional hosted provider: Gemma 4 through Google AI Studio / Gemini API.
+google-genai>=2.11,<3
 
 # Optional fallback backend: Liquid AI LFM2.5-VL-1.6B (set LOCALTEX_BACKEND=lfm-vl).
 transformers>=4.51

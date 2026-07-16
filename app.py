@@ -1,14 +1,17 @@
-"""KevinTex — offline formula-image → LaTeX/Markdown converter.
+"""KevinTex — formula-image → LaTeX/Markdown converter.
 
-A local, free, unlimited SimpleTex-style app. Default backend is Google's
-Gemma 4 E2B-it multimodal model (Q4_K_M GGUF + vision
-projector) run via llama.cpp entirely on this machine — no cloud calls. Set
-LOCALTEX_BACKEND=mlx for Apple Silicon MLX acceleration,
+A local, free, unlimited SimpleTex-style app. The default backend is Google's
+Gemma 4 E2B-it multimodal model (Q4_K_M GGUF + vision projector) run via
+llama.cpp entirely on this machine. Users can also select the hosted Gemma 4
+26B A4B model through Google AI Studio; cloud voice transcription uses an
+audio-capable Gemini model through the same API key. Set LOCALTEX_BACKEND=mlx
+for Apple Silicon MLX acceleration,
 LOCALTEX_BACKEND=lfm-vl for the Liquid AI LFM2.5-VL backend, or
 LOCALTEX_BACKEND=pix2tex for the smaller pix2tex model.
 """
 
 import base64
+import gc
 import io
 import logging
 import os
@@ -25,9 +28,13 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from image_preprocessing import MAX_INPUT_PIXELS, preprocess_image, validate_options
+from provider_config import get_api_key, read_config, save_config
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND = os.environ.get("LOCALTEX_BACKEND", "gemma").lower()
+_GEMMA_BACKENDS = {"gemma", "mlx", "gemma-cloud"}
+_AUDIO_BACKENDS = {"gemma", "mlx", "gemma-cloud"}
+_PROVIDER_MODES = {"local", "cloud"}
 # Default thinking mode for the VLM backend (see backend_vlm). 0/1 via env.
 THINKING_DEFAULT = os.environ.get("LOCALTEX_THINKING", "0") in ("1", "true", "True", "yes")
 
@@ -38,6 +45,83 @@ def _positive_env_int(name: str, default: int) -> int:
     except ValueError:
         return default
     return value if value > 0 else default
+
+
+def _gemma_provider_supported() -> bool:
+    return BACKEND in _GEMMA_BACKENDS
+
+
+def _local_model_available() -> bool:
+    """Detect an already-downloaded local model for first-run migration."""
+    local_backend = "gemma" if BACKEND == "gemma-cloud" else BACKEND
+    try:
+        if local_backend == "gemma":
+            import backend_gemma
+
+            return backend_gemma.model_files_present()
+        if local_backend == "mlx":
+            import backend_mlx
+
+            return backend_mlx.model_files_present()
+    except (ImportError, OSError):
+        return False
+    return False
+
+
+def _configured_provider() -> str | None:
+    """Resolve an explicit provider, with compatibility for existing installs."""
+    if BACKEND == "gemma-cloud":
+        return "cloud"
+
+    forced = os.environ.get("LOCALTEX_PROVIDER", "").strip().lower()
+    if forced in _PROVIDER_MODES:
+        return forced
+
+    stored = read_config().get("mode")
+    if stored in _PROVIDER_MODES:
+        return stored
+    if _gemma_provider_supported() and os.environ.get("GEMINI_API_KEY", "").strip():
+        return "cloud"
+    if _local_model_available():
+        return "local"
+    return None
+
+
+def _active_backend() -> str:
+    if BACKEND in _GEMMA_BACKENDS and _configured_provider() == "cloud":
+        return "gemma-cloud"
+    return "gemma" if BACKEND == "gemma-cloud" else BACKEND
+
+
+def _setup_required() -> bool:
+    mode = _configured_provider()
+    return _gemma_provider_supported() and (
+        mode is None or (mode == "cloud" and not get_api_key())
+    )
+
+
+def _provider_state() -> dict:
+    mode = _configured_provider()
+    api_key = get_api_key()
+    supported = _gemma_provider_supported()
+    setup_required = supported and (
+        mode is None or (mode == "cloud" and not api_key)
+    )
+    return {
+        "supported": supported,
+        "mode": mode,
+        "configured": mode is not None,
+        "setup_required": setup_required,
+        "api_key_configured": bool(api_key),
+        "api_key_hint": ("••••" + api_key[-4:]) if api_key else "",
+        "local_model_available": _local_model_available(),
+        "cloud_model": os.environ.get(
+            "LOCALTEX_GEMMA_CLOUD_MODEL", "gemma-4-26b-a4b-it"
+        ),
+        "cloud_audio_model": os.environ.get(
+            "LOCALTEX_GEMINI_AUDIO_MODEL", "gemini-3.5-flash"
+        ),
+    }
 
 
 MAX_UPLOAD_BYTES = _positive_env_int("LOCALTEX_MAX_UPLOAD_BYTES", 20 * 1024 * 1024)
@@ -98,34 +182,40 @@ def get_model():
     with _model_load_lock:
         if _model is not None:
             return _model
-        if BACKEND == "pix2tex":
+        active_backend = _active_backend()
+        if active_backend == "pix2tex":
             from pix2tex.cli import LatexOCR
             _model = LatexOCR()
-        elif BACKEND == "lfm-vl":
+        elif active_backend == "lfm-vl":
             import backend_vlm
             _model = backend_vlm.load()
-        elif BACKEND == "gemma":
+        elif active_backend == "gemma":
             import backend_gemma
             _model = backend_gemma.load()
-        elif BACKEND == "mlx":
+        elif active_backend == "mlx":
             import backend_mlx
             _model = backend_mlx.load()
+        elif active_backend == "gemma-cloud":
+            import backend_gemma_cloud
+            _model = backend_gemma_cloud.load(api_key=get_api_key())
         else:
-            raise RuntimeError(f"Unknown LOCALTEX_BACKEND={BACKEND!r}")
-        log.info("Backend '%s' loaded", BACKEND)
+            raise RuntimeError(f"Unknown LOCALTEX_BACKEND={active_backend!r}")
+        log.info("Backend '%s' loaded", active_backend)
     return _model
 
 
 def _load_in_background() -> None:
     """Load the model off the request path so the server is reachable at once."""
     global _model_load_error
+    if _setup_required():
+        return
     try:
         get_model()
         _model_load_error = None
     except Exception as e:
         _model_load_error = str(e)
         log.exception("Model load failed")
-        if BACKEND in ("gemma", "mlx"):
+        if _active_backend() in ("gemma", "mlx", "gemma-cloud"):
             try:
                 backend_status = _backend_status_module()
                 backend_status.set_status(
@@ -139,21 +229,63 @@ def model_ready() -> bool:
     return _model is not None
 
 
+def _dispose_model(model) -> None:
+    """Release backend resources when switching between local and cloud."""
+    if model is None:
+        return
+    close = getattr(model, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            log.exception("Backend cleanup failed")
+    del model
+    gc.collect()
+
+
+def _reserve_inference_capacity() -> int:
+    """Reserve every inference slot, returning zero when any request is active."""
+    acquired = 0
+    for _ in range(INFERENCE_CONCURRENCY):
+        if not _inference_slots.acquire(blocking=False):
+            for _ in range(acquired):
+                _inference_slots.release()
+            return 0
+        acquired += 1
+    return acquired
+
+
+def _release_inference_capacity(acquired: int) -> None:
+    for _ in range(acquired):
+        _inference_slots.release()
+
+
 def _backend_status_module():
-    if BACKEND == "gemma":
+    active_backend = _active_backend()
+    if active_backend == "gemma":
         import backend_gemma
 
         return backend_gemma
-    if BACKEND == "mlx":
+    if active_backend == "mlx":
         import backend_mlx
 
         return backend_mlx
+    if active_backend == "gemma-cloud":
+        import backend_gemma_cloud
+
+        return backend_gemma_cloud
     return None
 
 
 def _device_label() -> str:
-    if BACKEND == "mlx":
+    active_backend = _active_backend()
+    if active_backend == "gemma-cloud":
+        return "cloud"
+    if active_backend == "mlx":
         return "metal"
+    acceleration = os.environ.get("LOCALTEX_ACCELERATION", "").strip().lower()
+    if acceleration in {"cpu", "cuda", "rocm", "vulkan", "sycl"}:
+        return acceleration
     try:
         import torch
 
@@ -183,9 +315,7 @@ def _run_audio(audio_path: str, thinking: bool | None):
     try:
         backend = get_model()
         if not hasattr(backend, "recognize_audio"):
-            raise RuntimeError(
-                "Voice-to-LaTeX requires the Apple Silicon MLX backend."
-            )
+            raise RuntimeError("The active provider does not support Voice-to-LaTeX.")
         return backend.recognize_audio(audio_path, thinking=thinking)
     finally:
         _inference_slots.release()
@@ -247,6 +377,8 @@ def _preprocess_metadata(
 def warm_up():
     # Load in a background thread so /api/status and /api/health respond right
     # away with progress instead of blocking until the model is ready.
+    if _setup_required():
+        return
     threading.Thread(target=_load_in_background, daemon=True).start()
 
 
@@ -348,9 +480,9 @@ async def voice(
     thinking: bool | None = Form(None),
 ):
     """Convert a short WAV recording of spoken mathematics to LaTeX."""
-    if BACKEND not in ("gemma", "mlx"):
+    if _active_backend() not in _AUDIO_BACKENDS:
         return JSONResponse(
-            {"error": "Voice-to-LaTeX requires the Gemma or MLX backend."},
+            {"error": "Voice-to-LaTeX requires a Gemma or AI Studio provider."},
             status_code=501,
         )
     try:
@@ -468,18 +600,34 @@ def snip(
 
 @app.get("/api/health")
 def health():
+    active_backend = _active_backend()
     return {
         "status": "ok",
         "device": _device_label(),
-        "backend": BACKEND,
+        "backend": active_backend,
         "model_loaded": _model is not None,
         "thinking_default": THINKING_DEFAULT,
-        "audio_supported": BACKEND in ("gemma", "mlx"),
+        "audio_supported": active_backend in _AUDIO_BACKENDS,
+        "setup_required": _setup_required(),
     }
 
 
 @app.get("/api/status")
 def status():
+    active_backend = _active_backend()
+    if _setup_required():
+        return {
+            "phase": "setup",
+            "progress": 0,
+            "message": "Choose local model weights or Google AI Studio",
+            "error": None,
+            "backend": active_backend,
+            "device": _device_label(),
+            "model_loaded": False,
+            "audio_supported": False,
+            "setup_required": True,
+            "provider": _provider_state(),
+        }
     backend_status = _backend_status_module()
     if backend_status is not None:
         s = backend_status.get_status()
@@ -490,20 +638,106 @@ def status():
             "message": "Ready" if model_ready() else ("Model load failed" if _model_load_error else "Loading model…"),
             "error": _model_load_error,
         }
-    s["backend"] = BACKEND
+    s["backend"] = active_backend
     s["device"] = _device_label()
     s["model_loaded"] = model_ready()
-    s["audio_supported"] = BACKEND in ("gemma", "mlx")
+    s["audio_supported"] = active_backend in _AUDIO_BACKENDS
+    s["setup_required"] = False
+    s["provider"] = _provider_state()
     return s
+
+
+@app.get("/api/provider")
+def provider():
+    """Return provider metadata without ever returning the saved API key."""
+    return _provider_state()
+
+
+@app.post("/api/provider")
+async def configure_provider(request: Request):
+    """Select local weights or save a Google AI Studio key and reload."""
+    if not _gemma_provider_supported():
+        return JSONResponse(
+            {"error": "Provider selection is only available for Gemma backends."},
+            status_code=400,
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Provider settings must be valid JSON."}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Provider settings must be an object."}, status_code=400)
+
+    mode = str(body.get("mode", "")).strip().lower()
+    if mode not in ("local", "cloud"):
+        return JSONResponse(
+            {"error": "Provider mode must be 'local' or 'cloud'."}, status_code=400
+        )
+    api_key = body.get("api_key")
+    if api_key is not None and not isinstance(api_key, str):
+        return JSONResponse({"error": "API key must be text."}, status_code=400)
+    if mode == "cloud" and not (api_key or get_api_key()):
+        return JSONResponse(
+            {"error": "Paste a Google AI Studio API key to use the cloud model."},
+            status_code=400,
+        )
+
+    reserved_slots = _reserve_inference_capacity()
+    if not reserved_slots:
+        return JSONResponse(
+            {"error": "Wait for the current recognition to finish before switching providers."},
+            status_code=409,
+        )
+    load_lock_acquired = _model_load_lock.acquire(blocking=False)
+    if not load_lock_acquired:
+        _release_inference_capacity(reserved_slots)
+        return JSONResponse(
+            {"error": "Wait for the current model load to finish before switching providers."},
+            status_code=409,
+        )
+
+    global _model, _model_load_error
+    previous_model = None
+    try:
+        try:
+            save_config(mode, api_key=api_key if api_key else None)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except OSError as exc:
+            log.exception("Could not save provider settings")
+            return JSONResponse(
+                {"error": f"Could not save provider settings: {exc}"},
+                status_code=500,
+            )
+
+        previous_model = _model
+        _model = None
+        _model_load_error = None
+        active_backend = _active_backend()
+        if active_backend in ("gemma", "mlx", "gemma-cloud"):
+            try:
+                _backend_status_module().set_status("loading", 0, "Starting model…")
+            except Exception:
+                pass
+        _dispose_model(previous_model)
+        previous_model = None
+    finally:
+        _model_load_lock.release()
+        _release_inference_capacity(reserved_slots)
+
+    threading.Thread(target=_load_in_background, daemon=True).start()
+    return _provider_state()
 
 
 @app.post("/api/reload")
 def reload():
     """Re-trigger the background model load after a failure (splash Retry button)."""
     global _model, _model_load_error
+    if _setup_required():
+        return {"ok": True, "setup_required": True}
     if _model is None and not _loading_active():
         _model_load_error = None
-        if BACKEND in ("gemma", "mlx"):
+        if _active_backend() in ("gemma", "mlx", "gemma-cloud"):
             try:
                 backend_status = _backend_status_module()
                 backend_status.set_status("loading", 0, "Retrying model load…")
@@ -514,9 +748,11 @@ def reload():
 
 
 def _loading_active() -> bool:
+    if _setup_required():
+        return False
     if _model_load_lock.locked():
         return True
-    if BACKEND in ("gemma", "mlx"):
+    if _active_backend() in ("gemma", "mlx", "gemma-cloud"):
         try:
             backend_status = _backend_status_module()
             return backend_status.get_status()["phase"] in ("downloading", "loading")

@@ -3,6 +3,7 @@
 mlx-vlm>=0.6.4,<0.7
 safetensors>=0.4
 huggingface-hub>=0.34
+google-genai>=2.11,<3
 pillow>=10
 fastapi>=0.115
 uvicorn>=0.34

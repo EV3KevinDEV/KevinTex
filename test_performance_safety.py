@@ -1,7 +1,8 @@
 """Concurrency, backpressure, and resource-limit tests for KevinTex."""
 
 import asyncio
-import io
+import os
+import tempfile
 import threading
 import time
 import unittest
@@ -15,6 +16,13 @@ import app
 import backend_gemma
 import backend_mlx
 from pathlib import Path
+
+
+def upload_file(data: bytes, filename: str) -> UploadFile:
+    file = tempfile.SpooledTemporaryFile()
+    file.write(data)
+    file.seek(0)
+    return UploadFile(file, filename=filename)
 
 
 class ModelInitializationTests(unittest.TestCase):
@@ -76,6 +84,18 @@ class ModelInitializationTests(unittest.TestCase):
             app._model = previous_model
             app.BACKEND = previous_backend
 
+    def test_native_acceleration_label_uses_launcher_selection(self):
+        previous_backend = app.BACKEND
+        app.BACKEND = "gemma"
+        try:
+            for acceleration in ("cpu", "cuda", "rocm", "vulkan", "sycl"):
+                with self.subTest(acceleration=acceleration), patch.dict(
+                    os.environ, {"LOCALTEX_ACCELERATION": acceleration}
+                ):
+                    self.assertEqual(app._device_label(), acceleration)
+        finally:
+            app.BACKEND = previous_backend
+
     def test_optiq_model_skips_audio_repair(self):
         with patch.object(
             backend_mlx,
@@ -104,11 +124,13 @@ class InferenceConcurrencyTests(unittest.TestCase):
         backend.default_thinking = False
         backend._inference_lock = threading.Lock()
         backend.llm = FakeLlama()
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as audio:
             audio.write(b"RIFF" + b"\0" * 40)
-            audio.flush()
-            self.assertEqual(backend.recognize_audio(audio.name), "$x^2$")
+            audio_path = audio.name
+        try:
+            self.assertEqual(backend.recognize_audio(audio_path), "$x^2$")
+        finally:
+            os.unlink(audio_path)
         media = backend.llm.kwargs["messages"][0]["content"][0]
         self.assertEqual(media["type"], "image_url")
         self.assertTrue(media["image_url"]["url"].startswith("data:audio/wav;base64,"))
@@ -205,7 +227,7 @@ class UploadLimitTests(unittest.TestCase):
     def test_convert_rejects_oversized_upload_before_inference(self):
         previous_limit = app.MAX_UPLOAD_BYTES
         app.MAX_UPLOAD_BYTES = 8
-        upload = UploadFile(io.BytesIO(b"x" * 9), filename="large.png")
+        upload = upload_file(b"x" * 9, "large.png")
         try:
             response = asyncio.run(
                 app.convert(
@@ -224,7 +246,7 @@ class UploadLimitTests(unittest.TestCase):
     def test_reader_accepts_exact_limit(self):
         previous_limit = app.MAX_UPLOAD_BYTES
         app.MAX_UPLOAD_BYTES = 8
-        upload = UploadFile(io.BytesIO(b"x" * 8), filename="exact.bin")
+        upload = upload_file(b"x" * 8, "exact.bin")
         try:
             raw = asyncio.run(app._read_upload(upload))
         finally:
@@ -252,7 +274,7 @@ class UploadLimitTests(unittest.TestCase):
     def test_voice_is_rejected_on_backend_without_audio(self):
         previous_backend = app.BACKEND
         app.BACKEND = "pix2tex"
-        upload = UploadFile(io.BytesIO(b"not audio"), filename="voice.wav")
+        upload = upload_file(b"not audio", "voice.wav")
         try:
             response = asyncio.run(app.voice(upload, thinking=False))
         finally:
@@ -262,12 +284,27 @@ class UploadLimitTests(unittest.TestCase):
     def test_voice_validates_wav_before_inference(self):
         previous_backend = app.BACKEND
         app.BACKEND = "mlx"
-        upload = UploadFile(io.BytesIO(b"x" * 64), filename="voice.wav")
+        upload = upload_file(b"x" * 64, "voice.wav")
         try:
             response = asyncio.run(app.voice(upload, thinking=False))
         finally:
             app.BACKEND = previous_backend
         self.assertEqual(response.status_code, 400)
+
+    def test_cloud_provider_accepts_voice_uploads(self):
+        wav = b"RIFF" + (40).to_bytes(4, "little") + b"WAVE" + b"\0" * 36
+        upload = upload_file(wav, "voice.wav")
+        with (
+            patch.object(app, "BACKEND", "gemma-cloud"),
+            patch.object(app, "model_ready", return_value=True),
+            patch.object(app, "_run_audio", return_value="$x^2$") as run_audio,
+        ):
+            response = asyncio.run(app.voice(upload, thinking=False))
+            health = app.health()
+
+        self.assertEqual(response["latex"], "$x^2$")
+        self.assertTrue(health["audio_supported"])
+        run_audio.assert_called_once()
 
 
 if __name__ == "__main__":

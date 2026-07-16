@@ -2,7 +2,7 @@
 # Build kevintex_<version>_all.deb from the project sources.
 set -euo pipefail
 
-VERSION="${KEVINTEX_VERSION:-1.2.4}"
+VERSION="${KEVINTEX_VERSION:-1.2.10}"
 if [[ ! "$VERSION" =~ ^[0-9]+([.][0-9]+){1,3}$ ]]; then
   echo "KEVINTEX_VERSION must look like 1.2.3" >&2
   exit 2
@@ -19,7 +19,7 @@ install -d "$PKG/opt/kevintex" "$PKG/usr/bin" \
            "$PKG/usr/share/icons/hicolor/512x512/apps" \
            "$PKG/usr/share/doc/kevintex"
 
-cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$PKG/opt/kevintex/"
+cp "$PROJ/app.py" "$PROJ/backend_vlm.py" "$PROJ/backend_gemma.py" "$PROJ/backend_gemma_cloud.py" "$PROJ/provider_config.py" "$PROJ/image_preprocessing.py" "$PROJ/snip.py" "$PROJ/requirements.txt" "$PKG/opt/kevintex/"
 cp -r "$PROJ/static" "$PKG/opt/kevintex/static"
 cp "$PROJ/README.md" "$PKG/usr/share/doc/kevintex/"
 cp -r "$PROJ/assets" "$PKG/usr/share/doc/kevintex/assets"
@@ -40,18 +40,19 @@ Installed-Size: $SIZE_KB
 Depends: python3 (>= 3.9), python3-venv, python3-pip, python3-tk, curl
 Recommends: zenity, libnotify-bin
 Maintainer: Kevin <kevin@localhost>
-Description: Offline formula-image to LaTeX converter (Snip & Get)
- Local, free, unlimited alternative to SimpleTex. Snip or paste a
- screenshot of a math formula and get editable LaTeX with a live
- preview. Recognition runs entirely on-device with Google's
- Gemma 4 E2B-it multimodal model (Q4_K_M GGUF + vision projector)
- via llama.cpp with CUDA offload; no cloud services are used.
+Description: Formula-image to LaTeX converter (Snip & Get)
+ Local, free alternative to SimpleTex. Snip or paste a screenshot
+ of a math formula and get editable LaTeX with a live preview.
+ Choose local Gemma 4 E2B-it weights through llama.cpp or the
+ hosted Gemma 4 Google AI Studio provider on first launch.
  .
- The snip tool is self-contained (Pillow + tkinter region selector),
- no external screenshot utility required.
+ The snip tool uses Pillow and tkinter directly, with optional screenshot
+ backends as fallbacks when the desktop session blocks Pillow access.
  .
- On first launch the app creates a Python environment and downloads
- PyTorch, llama.cpp and the Gemma 4 model weights (one time, ~4.1 GB).
+ On first launch the app creates a Python environment. The local
+ provider installs an auto-detected CPU, CUDA, ROCm, Vulkan, or SYCL
+ llama.cpp runtime and downloads model weights (~4.1 GB);
+ the cloud provider uses a Google AI Studio API key instead.
  LOCALTEX_BACKEND=lfm-vl or =pix2tex selects alternative backends.
 EOF
 

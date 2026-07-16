@@ -2,20 +2,23 @@
   <img src="assets/kevintex-banner.png" alt="KevinTex — Screenshot to LaTeX" width="900">
 </p>
 
-# KevinTex — Snip & Get, fully offline
+# KevinTex — Snip & Get
 
 A local, free, unlimited formula-image → LaTeX converter (a self-hosted
 alternative to SimpleTex). Paste, drop, or **snip** a screenshot of a math
 formula and get editable Markdown + LaTeX with a live rendered preview.
-Recognition runs entirely on your machine using the quantized
+Recognition defaults to the quantized
 [Gemma 4 E2B-it](https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF)
-vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
+vision-language model through llama.cpp. On first launch, you can either
+download those local weights or use hosted Gemma 4 through a Google AI Studio
+API key.
 
 ## Features
 
 - **Snip button** (the computer-with-+ icon) — click it, drag a screen region,
-  and the capture is converted instantly. Fully self-contained (Pillow +
-  tkinter region selector); no `gnome-screenshot`/`flameshot`/portal needed.
+  and the capture is converted instantly. It uses Pillow + tkinter directly,
+  with optional `gnome-screenshot`, `grim`, `spectacle`, or `ffmpeg` fallbacks
+  when the desktop session blocks Pillow access.
 - **Paste (Ctrl+V), drag-and-drop, or browse** for a formula image (PNG/JPG/BMP/WEBP)
 - **Text sharpener** with persisted Off / Auto / Strong modes — conservative
   contrast normalization, smart upscaling, scan denoising, and edge sharpening
@@ -25,7 +28,8 @@ vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
   fraction/root/integral/matrix starters. Drawings go directly to local Gemma.
 - **Voice-to-LaTeX** — dictate a formula through the microphone; Gemma turns
   spoken math into editable Markdown + LaTeX entirely on-device through MLX on
-  Apple Silicon and llama.cpp on Windows/Linux.
+  Apple Silicon and llama.cpp on Windows/Linux, or through the audio-capable
+  Gemini model when Google AI Studio is selected.
 - **Image preparation tools** — rotate before OCR, invert dark screenshots, and
   compare the original with the exact processed image sent to recognition.
 - **Live KaTeX preview** (bundled locally — the app works with no internet at all)
@@ -37,22 +41,31 @@ vision-language model through llama.cpp — no cloud APIs, accounts, or quotas.
 - **Recognize again** using the current source image and active Thinking setting
 - **Download `.tex`** output and keyboard shortcuts (`Ctrl/Cmd+K`, `Ctrl/Cmd+S`)
 - **Native desktop builds** for Ubuntu, Windows, and Apple Silicon macOS
-- **Hardware acceleration** with CUDA on Linux/Windows and MLX/Metal on Apple Silicon
+- **Hardware acceleration** with NVIDIA CUDA, AMD ROCm/HIP, Intel/AMD
+  Vulkan, Intel SYCL, and Apple MLX/Metal; optimized CPU builds remain available
 - **Switchable backend** — Gemma is the default; `LOCALTEX_BACKEND=lfm-vl` or
   `LOCALTEX_BACKEND=pix2tex` selects an alternative local backend. The macOS
   application selects `LOCALTEX_BACKEND=mlx` automatically.
+- **Local or cloud Gemma** — choose **Download model weights** or **Use Google
+  AI Studio API** on first launch. Change the choice later in Settings. The
+  hosted option uses `gemma-4-26b-a4b-it` for images and `gemini-3.5-flash`
+  for voice. Cloud images and voice recordings are sent to Google, and usage
+  follows your AI Studio quota/billing.
 
 ## Install
 
 Prebuilt packages are attached to each [GitHub release](https://github.com/EV3KevinDEV/KevinTex/releases):
 
-- **Ubuntu:** `kevintex_1.2.4_all.deb`
-- **Windows:** portable `KevinTex-1.2.4-windows-x64.zip` containing `KevinTex.exe`
-- **Apple Silicon macOS:** `KevinTex-1.2.4-macOS-arm64.dmg` or `.zip`
+- **Ubuntu:** `kevintex_1.2.10_all.deb`
+- **Windows:** portable `KevinTex-1.2.10-windows-x64.zip` containing `KevinTex.exe`
+- **Windows GPU:** `KevinTex-1.2.10-windows-x64-cuda.7z.001` or
+  `KevinTex-1.2.10-windows-x64-vulkan.zip`
+- **Apple Silicon macOS:** `KevinTex-1.2.10-macOS-arm64.dmg` or `.zip`
 
-The Windows and macOS applications open in a native window. Model weights are
-not bundled; they download to the current user's application-data directory on
-first launch. The macOS build requires an M-series Mac and uses MLX/Metal.
+The Windows and macOS applications open in a native window. Local model weights
+are not bundled; if you choose the local provider, they download to the current
+user's application-data directory. The macOS build requires an M-series Mac
+and uses MLX/Metal for its local provider.
 
 ### Ubuntu desktop app
 
@@ -62,7 +75,7 @@ Two options:
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/kevintex_1.2.4_all.deb
+sudo apt install ./dist/kevintex_1.2.10_all.deb
 ```
 
 **Current user only (no root):**
@@ -74,9 +87,36 @@ packaging/install-user.sh
 Either way you get a **KevinTex** entry in the applications menu with its own
 icon. Launching it starts the local server and opens the app in its own
 native window (Chrome/Chromium app mode; falls back to your browser).
-Closing the window stops the server. On a machine without the model
-environment, the first launch shows a one-time setup dialog that downloads
-PyTorch, llama.cpp, and the Gemma GGUF weights.
+Closing the window stops the server. On first launch, the app shows a provider
+setup screen. The local choice downloads PyTorch/llama.cpp model weights; the
+AI Studio choice asks for a key from
+<https://aistudio.google.com/app/apikey> and does not download model weights.
+
+### Linux and Windows hardware support
+
+| Hardware | Recommended backend | Linux | Windows |
+| --- | --- | --- | --- |
+| Intel or AMD CPU | CPU | Automatic fallback | Standard ZIP |
+| NVIDIA GPU | CUDA 12.4 | Automatic when the driver is detected | CUDA archive |
+| AMD GPU | ROCm/HIP | Automatic when ROCm is installed | Local HIP SDK build |
+| Intel or AMD GPU | Vulkan | Automatic with Vulkan build tools | Vulkan ZIP |
+| Intel GPU | SYCL/oneAPI | Explicit local build | Explicit local build |
+
+The Linux launcher auto-detects a usable backend and stores the choice under
+`~/.local/share/localtex/acceleration`. Override it for the next launch with:
+
+```bash
+KEVINTEX_ACCELERATION=cpu kevintex
+KEVINTEX_ACCELERATION=rocm kevintex
+KEVINTEX_ACCELERATION=vulkan kevintex
+KEVINTEX_ACCELERATION=sycl kevintex
+```
+
+ROCm requires the AMD ROCm SDK and access to `/dev/kfd`. Vulkan source builds
+need `build-essential cmake libvulkan-dev glslc spirv-headers`. SYCL requires
+Intel oneAPI (`icx` and `icpx`). Changing the override rebuilds only the
+llama.cpp Python backend; downloaded model weights remain untouched. Hardware
+and driver support still follows each vendor's compatibility list.
 
 The app window's **Snip** button (computer-with-+ icon) opens a fullscreen
 region selector: drag a box around a formula and it's converted immediately —
@@ -89,9 +129,8 @@ tool required.
 ./run.sh
 ```
 
-Then open http://127.0.0.1:8321 (the script opens it for you). The first
-launch downloads the Gemma weights (one time); after that it
-is fully offline.
+Then open http://127.0.0.1:8321 (the script opens it for you). The first launch
+asks whether to download the local Gemma weights or configure Google AI Studio.
 
 ## Manual setup (if moving to another machine)
 
@@ -124,9 +163,11 @@ The same fields are accepted by `POST /api/convert`; `/api/snip` accepts them as
 query parameters. Conversion responses include the applied preprocessing
 metadata.
 
-`POST /api/voice` accepts a 16 kHz mono WAV file in the `audio` multipart field
-and an optional `thinking` boolean. It is available with the default `gemma`
-backend and with `LOCALTEX_BACKEND=mlx`.
+`POST /api/voice` accepts a short mono WAV file in the `audio` multipart field
+and an optional `thinking` boolean. It is available with local Gemma backends
+and the hosted AI Studio provider. Cloud voice requests use Gemini's documented
+[inline audio input](https://ai.google.dev/gemini-api/docs/generate-content/audio)
+and are limited to 14 MiB to stay below its encoded request limit.
 
 ## Performance and resource controls
 
@@ -139,5 +180,14 @@ The following optional environment variables tune local inference:
 - `LOCALTEX_N_GPU_LAYERS` — llama.cpp GPU offload (`-1` means all)
 - `LOCALTEX_N_BATCH` — llama.cpp prompt batch size
 - `LOCALTEX_N_THREADS` — CPU inference threads
+- `KEVINTEX_ACCELERATION=auto|cpu|cuda|rocm|vulkan|sycl` — select the Linux
+  llama.cpp runtime (`auto` is the default)
 - `LOCALTEX_MAX_UPLOAD_BYTES` — upload cap (default 20 MiB)
 - `LOCALTEX_INFERENCE_QUEUE_TIMEOUT` — wait before returning busy
+- `LOCALTEX_PROVIDER=local|cloud` — optionally select the Gemma provider before startup
+- `GEMINI_API_KEY` — optionally provide the Google AI Studio key through the environment
+- `LOCALTEX_GEMINI_AUDIO_MODEL` — override the cloud voice model (default `gemini-3.5-flash`)
+
+The Settings UI stores a key in the per-user `provider.json` file with
+user-only permissions where supported. The key is not stored in browser
+`localStorage` or returned by the provider status API.

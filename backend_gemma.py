@@ -5,7 +5,7 @@ Uses `unsloth/gemma-4-E2B-it-GGUF` Q4_K_M quant plus the repo's
 offload. Outputs the same Mathpix/SimpleTex-style Markdown+math as the LFM
 backend (prose as plain text, inline math in `$...$`, display math in `$$...$$`)
 and reuses the exact prompt text and `_to_markdown_math()` cleanup from
-`backend_vlm`. Runs entirely on-device (GPU). No cloud.
+`backend_vlm`. Runs entirely on-device using the selected CPU/GPU backend.
 """
 
 from __future__ import annotations
@@ -80,37 +80,59 @@ N_GPU_LAYERS = _env_int("LOCALTEX_N_GPU_LAYERS", -1)
 N_BATCH = _env_int("LOCALTEX_N_BATCH", 512, 1)
 N_THREADS = _env_int("LOCALTEX_N_THREADS", 0, 0) or None
 
+
+def model_files_present() -> bool:
+    """Return whether both local Gemma files are already cached."""
+    return os.path.isfile(os.path.join(MODEL_DIR, MAIN_GGUF)) and os.path.isfile(
+        os.path.join(MODEL_DIR, MMPROJ_GGUF)
+    )
+
 # Reuse the exact prompt text + cleanup from the LFM backend so output style is
 # identical across backends.
 from backend_vlm import (  # noqa: E402
     AUDIO_PROMPT,
     PROMPT,
     THINKING_PROMPT,
-    LATEX_SENTINEL,
-    _to_markdown_math,
     _extract_markdown,
 )
 
 
+_CUDA_DLL_DIR_HANDLES = []
+
+
 def _preload_cuda_libs() -> None:
-    """Make torch's pip-bundled NVIDIA CUDA libs resolvable to libllama.so.
+    """Make torch's pip-bundled NVIDIA CUDA libs resolvable to llama.cpp.
 
-    The prebuilt cu121 `llama-cpp-python` wheel links against libcudart.so.12 /
-    libcublas.so.12 etc. which aren't on the default ld path. Loading them with
-    RTLD_GLOBAL before importing `llama_cpp` makes the symbols available to the
-    dlopen of libllama.so. Best-effort: silently skip if torch/nvidia isn't
-    present (CPU-only fallback).
+    CUDA wheels link against runtime libraries that are not always on the
+    process search path. On Windows, PyTorch stores those DLLs in ``torch/lib``;
+    keep an ``add_dll_directory`` handle alive for the process lifetime. On
+    Linux, load the pip-bundled NVIDIA libraries globally before importing
+    ``llama_cpp``. Best-effort: silently skip if torch/CUDA is not present.
     """
-    import ctypes
-    import glob
-    import sys
-
     try:
         import torch  # noqa: F401  -- ensure torch's nvidia pip pkgs exist
     except Exception:
         return
 
+    if os.name == "nt":
+        torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if not os.path.isdir(torch_lib):
+            return
+        path_entries = os.environ.get("PATH", "").split(os.pathsep)
+        if torch_lib not in path_entries:
+            os.environ["PATH"] = torch_lib + os.pathsep + os.environ.get("PATH", "")
+        add_dll_directory = getattr(os, "add_dll_directory", None)
+        if add_dll_directory is not None:
+            try:
+                _CUDA_DLL_DIR_HANDLES.append(add_dll_directory(torch_lib))
+            except OSError:
+                pass
+        return
+
     # torch >=2 ships CUDA runtime libs under site-packages/nvidia/<lib>/lib/.
+    import ctypes
+    import glob
+
     try:
         site_pkg = os.path.dirname(os.path.dirname(torch.__file__))
     except Exception:
@@ -219,8 +241,12 @@ class GemmaVisionBackend:
         self.mmproj_path = mmproj_path
 
         t0 = time.time()
-        set_status("loading", 0, "Loading model onto GPU…")
-        log.info("Loading Gemma 4 E2B-it (Q4_K_M + mmproj) via llama.cpp…")
+        acceleration = os.environ.get("LOCALTEX_ACCELERATION", "GPU").upper()
+        set_status("loading", 0, f"Loading model with {acceleration}…")
+        log.info(
+            "Loading Gemma 4 E2B-it (Q4_K_M + mmproj) via llama.cpp (%s)…",
+            acceleration,
+        )
         handler = Gemma4ChatHandler(
             clip_model_path=mmproj_path,
             verbose=False,
@@ -244,6 +270,13 @@ class GemmaVisionBackend:
 
     def __call__(self, img, thinking: bool | None = None) -> str:
         return self.recognize(img, thinking=thinking)
+
+    def close(self) -> None:
+        """Release the llama.cpp context and its CPU/GPU memory."""
+        with self._inference_lock:
+            close = getattr(self.llm, "close", None)
+            if callable(close):
+                close()
 
     def recognize(self, img, thinking: bool | None = None) -> str:
         """Recognize the formula in `img` and return cleaned Markdown+math."""
@@ -287,8 +320,6 @@ class GemmaVisionBackend:
         log.info("Gemma generated %d tokens in %.2fs (%.1f tok/s, thinking=%s)",
                  gen_tokens, elapsed, toks_per_s, think)
 
-        if think:
-            return _extract_markdown(content)
         return _extract_markdown(content)
 
     def recognize_audio(self, audio_path: str, thinking: bool | None = None) -> str:

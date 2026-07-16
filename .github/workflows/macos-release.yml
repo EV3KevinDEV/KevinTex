@@ -40,7 +40,7 @@ jobs:
       - name: Run tests
         run: |
           python -m unittest discover -v
-          python -m py_compile backend_mlx.py packaging/macos/desktop_macos.py
+          python -m py_compile app.py backend_gemma_cloud.py backend_mlx.py provider_config.py packaging/macos/desktop_macos.py
 
       - name: Build app, ZIP, and DMG
         env:

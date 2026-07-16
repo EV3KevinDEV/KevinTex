@@ -2,12 +2,20 @@
 
 import asyncio
 import io
+import tempfile
 import unittest
 
 from PIL import Image, ImageDraw, ImageStat
 from starlette.datastructures import UploadFile
 
 from image_preprocessing import preprocess_image, validate_options
+
+
+def upload_file(data: bytes, filename: str) -> UploadFile:
+    file = tempfile.SpooledTemporaryFile()
+    file.write(data)
+    file.seek(0)
+    return UploadFile(file, filename=filename)
 
 
 class PreprocessingTests(unittest.TestCase):
@@ -58,7 +66,7 @@ class PreprocessingTests(unittest.TestCase):
         source = self.formula_image()
         encoded = io.BytesIO()
         source.save(encoded, "PNG")
-        upload = UploadFile(io.BytesIO(encoded.getvalue()), filename="generated.png")
+        upload = upload_file(encoded.getvalue(), "generated.png")
         response = asyncio.run(
             preprocess_preview(upload, preprocess="auto", rotation=90, invert=False)
         )

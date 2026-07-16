@@ -15,6 +15,7 @@ on:
         options:
           - cpu
           - cuda
+          - vulkan
 
 permissions:
   contents: write
@@ -71,27 +72,88 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-windows.txt
 
-      - name: Replace runtime with CUDA wheels
-        if: env.ACCELERATION == 'cuda'
+      - name: Install Vulkan SDK
+        if: env.ACCELERATION == 'vulkan'
         run: |
-          python -m pip uninstall -y llama-cpp-python torch
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
-          python -m pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-          Set-Content -Path packaging/windows/cuda_enabled.txt -Value "CUDA build"
+          choco install vulkan-sdk -y --no-progress
+          $sdk = Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $sdk) { throw "Vulkan SDK installation was not found." }
+          "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+          "$($sdk.FullName)\Bin" >> $env:GITHUB_PATH
+
+      - name: Select llama.cpp acceleration backend
+        run: |
+          & ./packaging/windows/build-llama-backend.ps1 -Acceleration $env:ACCELERATION
+
+      - name: Verify acceleration runtime
+        run: |
+          if ($env:ACCELERATION -eq "cuda") {
+            python -c "import torch; assert torch.version.cuda, 'CPU PyTorch wheel remained in CUDA build'; print('PyTorch CUDA', torch.version.cuda)"
+          }
+          @'
+          import os
+          from pathlib import Path
+
+          acceleration = os.environ["ACCELERATION"]
+          if acceleration in {"cuda", "vulkan"}:
+              import importlib.util
+
+              llama_spec = importlib.util.find_spec("llama_cpp")
+              if llama_spec is None or not llama_spec.submodule_search_locations:
+                  raise ModuleNotFoundError("llama_cpp package is missing")
+              llama_lib = Path(next(iter(llama_spec.submodule_search_locations))) / "lib"
+          if acceleration == "cuda":
+              import torch
+
+              cuda_backend = llama_lib / "ggml-cuda.dll"
+              if not cuda_backend.is_file():
+                  raise FileNotFoundError("CUDA llama.cpp backend DLL is missing")
+              imports = cuda_backend.read_bytes().lower()
+              for dependency in (b"cudart64_12.dll", b"cublas64_12.dll", b"nvcuda.dll"):
+                  if dependency not in imports:
+                      raise RuntimeError(f"{dependency.decode()} is not linked by ggml-cuda.dll")
+              torch_lib = Path(torch.__file__).parent / "lib"
+              for dependency in ("cudart64_12.dll", "cublas64_12.dll"):
+                  if not (torch_lib / dependency).is_file():
+                      raise FileNotFoundError(f"PyTorch CUDA runtime is missing {dependency}")
+              print(f"Verified CUDA backend and runtime DLLs in {llama_lib}")
+          elif acceleration == "vulkan":
+              vulkan_backend = llama_lib / "ggml-vulkan.dll"
+              if not vulkan_backend.is_file():
+                  raise FileNotFoundError("Vulkan llama.cpp backend DLL is missing")
+              if b"vulkan-1.dll" not in vulkan_backend.read_bytes().lower():
+                  raise RuntimeError("ggml-vulkan.dll is not linked to the Vulkan loader")
+              print(f"Verified Vulkan backend DLL in {llama_lib}")
+          else:
+              import llama_cpp
+              from llama_cpp import llama_cpp as native
+
+              info = native.llama_print_system_info().decode("utf-8", "replace")
+              print(info)
+          '@ | python -
 
       - name: Run source checks
         run: |
           python -m py_compile desktop.py packaging/windows/generate_icon.py packaging/windows/generate_version_info.py
-          python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('app.py', 'backend_gemma.py', 'backend_vlm.py', 'image_preprocessing.py', 'snip.py')]"
+          $tokens = $null
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile("packaging/windows/build-llama-backend.ps1", [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors) { throw ($parseErrors | Out-String) }
+          python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('app.py', 'backend_gemma.py', 'backend_gemma_cloud.py', 'backend_mlx.py', 'backend_vlm.py', 'provider_config.py', 'image_preprocessing.py', 'snip.py')]"
+          python -m unittest discover -v
           python packaging/windows/generate_version_info.py $env:RELEASE_TAG
           python packaging/windows/generate_icon.py
 
       - name: Build native desktop application
         run: |
           pyinstaller --clean --noconfirm packaging/windows/kevintex.spec
+          Copy-Item -Force "packaging/windows/KevinTex.exe.config" "dist/KevinTex/KevinTex.exe.config"
 
       - name: Smoke-test packaged application
         run: |
+          if (-not (Test-Path "dist/KevinTex/KevinTex.exe.config")) {
+            throw "Packaged .NET application configuration is missing."
+          }
           $process = Start-Process -FilePath "dist/KevinTex/KevinTex.exe" -ArgumentList "--smoke-test" -PassThru -Wait
           if ($process.ExitCode -ne 0) {
             throw "Packaged application smoke test failed with exit code $($process.ExitCode)."
@@ -99,10 +161,22 @@ jobs:
           if (-not (Test-Path "dist/KevinTex/_internal/static/index.html")) {
             throw "Packaged frontend data is missing."
           }
+          if ($env:ACCELERATION -eq "cuda") {
+            foreach ($dependency in @("ggml-cuda.dll", "cudart64_12.dll", "cublas64_12.dll")) {
+              if (-not (Get-ChildItem "dist/KevinTex" -Recurse -Filter $dependency -File)) {
+                throw "Packaged CUDA build is missing $dependency."
+              }
+            }
+          }
+          if ($env:ACCELERATION -eq "vulkan") {
+            if (-not (Get-ChildItem "dist/KevinTex" -Recurse -Filter "ggml-vulkan.dll" -File)) {
+              throw "Packaged Vulkan build is missing ggml-vulkan.dll."
+            }
+          }
 
       - name: Create versioned archive
         run: |
-          $suffix = if ($env:ACCELERATION -eq "cuda") { "-cuda" } else { "" }
+          $suffix = if ($env:ACCELERATION -eq "cpu") { "" } else { "-$env:ACCELERATION" }
           if ($env:ACCELERATION -eq "cuda") {
             # GitHub release assets are capped below 2 GiB. The CUDA runtime is
             # large, so publish standard 7-Zip multi-volume files that extract
@@ -112,7 +186,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "7-Zip packaging failed." }
             "ARCHIVE_GLOB=$archive.*" >> $env:GITHUB_ENV
           } else {
-            $archive = "KevinTex-$env:VERSION-windows-x64.zip"
+            $archive = "KevinTex-$env:VERSION-windows-x64$suffix.zip"
             Compress-Archive -Path "dist/KevinTex/*" -DestinationPath $archive
             "ARCHIVE_GLOB=$archive" >> $env:GITHUB_ENV
           }
