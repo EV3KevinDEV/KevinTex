@@ -16,8 +16,9 @@ API key.
 ## Features
 
 - **Snip button** (the computer-with-+ icon) — click it, drag a screen region,
-  and the capture is converted instantly. Fully self-contained (Pillow +
-  tkinter region selector); no `gnome-screenshot`/`flameshot`/portal needed.
+  and the capture is converted instantly. It uses Pillow + tkinter directly,
+  with optional `gnome-screenshot`, `grim`, `spectacle`, or `ffmpeg` fallbacks
+  when the desktop session blocks Pillow access.
 - **Paste (Ctrl+V), drag-and-drop, or browse** for a formula image (PNG/JPG/BMP/WEBP)
 - **Text sharpener** with persisted Off / Auto / Strong modes — conservative
   contrast normalization, smart upscaling, scan denoising, and edge sharpening
@@ -55,11 +56,11 @@ API key.
 
 Prebuilt packages are attached to each [GitHub release](https://github.com/EV3KevinDEV/KevinTex/releases):
 
-- **Ubuntu:** `kevintex_1.2.7_all.deb`
-- **Windows:** portable `KevinTex-1.2.7-windows-x64.zip` containing `KevinTex.exe`
-- **Windows GPU:** `KevinTex-1.2.7-windows-x64-cuda.7z.001` or
-  `KevinTex-1.2.7-windows-x64-vulkan.zip`
-- **Apple Silicon macOS:** `KevinTex-1.2.7-macOS-arm64.dmg` or `.zip`
+- **Ubuntu:** `kevintex_1.2.8_all.deb`
+- **Windows:** portable `KevinTex-1.2.8-windows-x64.zip` containing `KevinTex.exe`
+- **Windows GPU:** `KevinTex-1.2.8-windows-x64-cuda.7z.001` or
+  `KevinTex-1.2.8-windows-x64-vulkan.zip`
+- **Apple Silicon macOS:** `KevinTex-1.2.8-macOS-arm64.dmg` or `.zip`
 
 The Windows and macOS applications open in a native window. Local model weights
 are not bundled; if you choose the local provider, they download to the current
@@ -74,7 +75,7 @@ Two options:
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/kevintex_1.2.7_all.deb
+sudo apt install ./dist/kevintex_1.2.8_all.deb
 ```
 
 **Current user only (no root):**

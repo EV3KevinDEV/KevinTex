@@ -1,8 +1,10 @@
 """Screen-coordinate tests for the cross-platform snip overlay."""
 
 import unittest
+from unittest.mock import patch
 
-from snip import _capture_crop_box, _display_size
+from PIL import Image
+from snip import _capture_crop_box, _capture_screen, _display_size
 
 
 class SnipCoordinateTests(unittest.TestCase):
@@ -39,6 +41,16 @@ class SnipCoordinateTests(unittest.TestCase):
             _display_size((1920, 1080), (1920, 1080), platform="linux"),
             (1920, 1080),
         )
+
+    def test_linux_capture_falls_back_when_pillow_cannot_access_desktop(self):
+        fallback = Image.new("RGB", (64, 32), "black")
+        with patch("snip.ImageGrab.grab", side_effect=OSError("desktop unavailable")):
+            with patch("snip._capture_with_command", return_value=fallback):
+                captured = _capture_screen()
+        try:
+            self.assertEqual(captured.size, (64, 32))
+        finally:
+            captured.close()
 
 
 if __name__ == "__main__":

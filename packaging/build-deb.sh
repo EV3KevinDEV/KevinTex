@@ -2,7 +2,7 @@
 # Build kevintex_<version>_all.deb from the project sources.
 set -euo pipefail
 
-VERSION="${KEVINTEX_VERSION:-1.2.7}"
+VERSION="${KEVINTEX_VERSION:-1.2.8}"
 if [[ ! "$VERSION" =~ ^[0-9]+([.][0-9]+){1,3}$ ]]; then
   echo "KEVINTEX_VERSION must look like 1.2.3" >&2
   exit 2
@@ -46,8 +46,8 @@ Description: Formula-image to LaTeX converter (Snip & Get)
  Choose local Gemma 4 E2B-it weights through llama.cpp or the
  hosted Gemma 4 Google AI Studio provider on first launch.
  .
- The snip tool is self-contained (Pillow + tkinter region selector),
- no external screenshot utility required.
+ The snip tool uses Pillow and tkinter directly, with optional screenshot
+ backends as fallbacks when the desktop session blocks Pillow access.
  .
  On first launch the app creates a Python environment. The local
  provider installs an auto-detected CPU, CUDA, ROCm, Vulkan, or SYCL
