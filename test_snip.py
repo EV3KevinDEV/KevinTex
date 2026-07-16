@@ -44,9 +44,12 @@ class SnipCoordinateTests(unittest.TestCase):
 
     def test_linux_capture_falls_back_when_pillow_cannot_access_desktop(self):
         fallback = Image.new("RGB", (64, 32), "black")
-        with patch("snip.ImageGrab.grab", side_effect=OSError("desktop unavailable")):
-            with patch("snip._capture_with_command", return_value=fallback):
-                captured = _capture_screen()
+        with patch("snip.sys.platform", "linux"):
+            with patch(
+                "snip.ImageGrab.grab", side_effect=OSError("desktop unavailable")
+            ):
+                with patch("snip._capture_with_command", return_value=fallback):
+                    captured = _capture_screen()
         try:
             self.assertEqual(captured.size, (64, 32))
         finally:

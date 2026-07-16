@@ -2,7 +2,7 @@
 # Build kevintex_<version>_all.deb from the project sources.
 set -euo pipefail
 
-VERSION="${KEVINTEX_VERSION:-1.2.8}"
+VERSION="${KEVINTEX_VERSION:-1.2.9}"
 if [[ ! "$VERSION" =~ ^[0-9]+([.][0-9]+){1,3}$ ]]; then
   echo "KEVINTEX_VERSION must look like 1.2.3" >&2
   exit 2
