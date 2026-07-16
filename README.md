@@ -55,11 +55,11 @@ API key.
 
 Prebuilt packages are attached to each [GitHub release](https://github.com/EV3KevinDEV/KevinTex/releases):
 
-- **Ubuntu:** `kevintex_1.2.6_all.deb`
-- **Windows:** portable `KevinTex-1.2.6-windows-x64.zip` containing `KevinTex.exe`
-- **Windows GPU:** `KevinTex-1.2.6-windows-x64-cuda.7z.001` or
-  `KevinTex-1.2.6-windows-x64-vulkan.zip`
-- **Apple Silicon macOS:** `KevinTex-1.2.6-macOS-arm64.dmg` or `.zip`
+- **Ubuntu:** `kevintex_1.2.7_all.deb`
+- **Windows:** portable `KevinTex-1.2.7-windows-x64.zip` containing `KevinTex.exe`
+- **Windows GPU:** `KevinTex-1.2.7-windows-x64-cuda.7z.001` or
+  `KevinTex-1.2.7-windows-x64-vulkan.zip`
+- **Apple Silicon macOS:** `KevinTex-1.2.7-macOS-arm64.dmg` or `.zip`
 
 The Windows and macOS applications open in a native window. Local model weights
 are not bundled; if you choose the local provider, they download to the current
@@ -74,7 +74,7 @@ Two options:
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/kevintex_1.2.6_all.deb
+sudo apt install ./dist/kevintex_1.2.7_all.deb
 ```
 
 **Current user only (no root):**
