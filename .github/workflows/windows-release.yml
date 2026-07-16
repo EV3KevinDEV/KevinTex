@@ -147,9 +147,13 @@ jobs:
       - name: Build native desktop application
         run: |
           pyinstaller --clean --noconfirm packaging/windows/kevintex.spec
+          Copy-Item -Force "packaging/windows/KevinTex.exe.config" "dist/KevinTex/KevinTex.exe.config"
 
       - name: Smoke-test packaged application
         run: |
+          if (-not (Test-Path "dist/KevinTex/KevinTex.exe.config")) {
+            throw "Packaged .NET application configuration is missing."
+          }
           $process = Start-Process -FilePath "dist/KevinTex/KevinTex.exe" -ArgumentList "--smoke-test" -PassThru -Wait
           if ($process.ExitCode -ne 0) {
             throw "Packaged application smoke test failed with exit code $($process.ExitCode)."

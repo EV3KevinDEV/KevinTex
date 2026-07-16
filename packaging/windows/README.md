@@ -33,7 +33,12 @@ py -3.11 -m pip install -r requirements-windows.txt
 py packaging/windows/generate_icon.py
 py packaging/windows/generate_version_info.py v0.0.0
 pyinstaller --clean --noconfirm packaging/windows/kevintex.spec
+Copy-Item -Force packaging/windows/KevinTex.exe.config dist/KevinTex/KevinTex.exe.config
 ```
+
+The sidecar `.config` file allows the bundled Python.NET assembly to load when
+Windows preserves the downloaded archive's web-origin security marker during
+extraction. Keep it next to `KevinTex.exe` when distributing or moving the app.
 
 Valid backend names are `cpu`, `cuda`, `vulkan`, `rocm`, and `sycl`. Vulkan
 requires the LunarG Vulkan SDK. ROCm requires AMD's Windows HIP SDK. SYCL must

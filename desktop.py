@@ -7,6 +7,7 @@ in the current user's local application-data directory.
 
 from __future__ import annotations
 
+import importlib
 import os
 import socket
 import sys
@@ -117,6 +118,12 @@ def server_thread_alive(server) -> bool:
     return not server.should_exit
 
 
+def _verify_native_window_backend() -> None:
+    """Import the Windows GUI bridge so packaged smoke tests exercise .NET."""
+    if sys.platform == "win32":
+        importlib.import_module("webview.platforms.winforms")
+
+
 def _run_snip_subprocess() -> bool:
     """Handle app.py relaunching the frozen executable for snip.py."""
     if len(sys.argv) < 3 or Path(sys.argv[1]).name.lower() != "snip.py":
@@ -130,6 +137,7 @@ def _run_snip_subprocess() -> bool:
 
 def _smoke_test() -> int:
     _configure_user_paths()
+    _verify_native_window_backend()
     _configure_llama_backend()
     import app
 

@@ -7,8 +7,10 @@ huggingface-hub
 google-genai>=2.11,<3
 llama-cpp-python>=0.3.34
 pillow
-pyinstaller
-pywebview
+pyinstaller==6.21.0
+pywebview==6.2.1
+pythonnet==3.0.5
+clr-loader==0.2.7.post0
 python-multipart
 torch
 uvicorn
